@@ -8,6 +8,5 @@ public/
 _multiconfig.yml
 notes/
 .venv
-source/
 source/_posts/
 __pycache__/

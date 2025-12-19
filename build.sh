@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# 在build阶段完成数据的处理，生成可部署的产物
 set -euo pipefail
 
 REPO_URL="git@gitee.com:Eyestorm/notes.git"
@@ -23,3 +24,5 @@ fi
 
 source .venv/bin/activate
 python processor/sync.py "$@"
+
+hexo clean && hexo generate

@@ -3,17 +3,17 @@
 ## Source: https://github.com/hexojs/hexo/
 
 # Site
-title: Hexo
-subtitle: ''
-description: ''
+title: Estom's Blog
+subtitle: '一点一行，皆是生活'
+description: '也许那年在绿色的麦浪中奔跑的时候，就注定了我此生的繁华与悲叹'
 keywords:
-author: John Doe
-language: en
+author: Estom
+language: zh-CN
 timezone: 'Asia/Shanghai'
 
 # URL
 ## Set your site url here. For example, if you use GitHub Page, set url as 'https://username.github.io/project'
-url: http://example.com
+url: https://github.com/Estom
 permalink: :year/:month/:day/:title/
 permalink_defaults:
 pretty_urls:
