@@ -11,7 +11,7 @@
 
 nav:
   # Navigation bar logo image
-  logo:
+  logo: /images/favicon10.png
   display_title: true
   display_post_title: true
   # Whether to fix navigation bar
@@ -23,6 +23,7 @@ menu:
   标签: /tags/ || fa fa-tags
   分类: /categories/ || fa fa-folder-open
   关于: /about/ || fa fa-user
+  友链: /link/ || fas fa-link
   # Home: / || fas fa-home
   # List||fas fa-list:
   #   Music: /music/ || fas fa-music
@@ -51,33 +52,34 @@ code_blocks:
 # Formal:
 #   icon: link || the description || color
 social:
-  # fab fa-github: https://github.com/xxxxx || Github || '#24292e'
-  # fas fa-envelope: mailto:xxxxxx@gmail.com || Email || '#4a7dbe'
+  fab fa-github: https://github.com/Estom || Github || '#24292e'
+  fas fa-envelope: yinkanglong@163.com || Email || '#4a7dbe'
 
 # --------------------------------------
 # Image Settings
 # --------------------------------------
 
-favicon: /images/favicon.png
+favicon: /images/favicon10.png
 
 avatar:
-  img: /images/butterfly-icon.png
+  img: /images/favicon10.png
   effect: false
 
 # Disable all banner images
 disable_top_img: false
 
 # If the banner of page not setting, it will show the default_top_img
-default_top_img: /images/image-1.jpeg
+default_top_img: /images/daily4.jpg
 
 # The banner image of index page
-index_img: /images/image-1.jpeg
+# random image :https://source.unsplash.com/1920x1080/?nature
+index_img: /images/daily4.jpg
 
 # The banner image of archive page
-archive_img: /images/image-4.jpg
+archive_img: /images/daily8.jpg
 
 # Note: tag page, not tags page
-tag_img: images/image-3.png
+tag_img: /images/daily8.jpg
 
 # The banner image of tag page, you can set the banner image for each tag
 # Format:
@@ -85,7 +87,7 @@ tag_img: images/image-3.png
 tag_per_img:
 
 # Note: category page, not categories page
-category_img: images/image-2.jpg
+category_img: /images/daily8.jpg
 
 # The banner image of category page, you can set the banner image for each category
 # Format:
@@ -93,12 +95,12 @@ category_img: images/image-2.jpg
 category_per_img:
 
 # The background image of footer
-footer_img: false
+footer_img: /images/daily7.jpg
 
 # Website Background
 # Can set it to color, image URL or an array containing colors and/or image URLs
 # If an array is provided, a random background will be selected from the array on each load
-background:
+background: /images/daily7.jpg
 
 cover:
   # Disable the cover or not
@@ -107,18 +109,18 @@ cover:
   archives_enable: true
   # When cover is not set, the default cover is displayed
   default_cover:
-    # - xxx.jpg
+    - /images/daily3.jpg
 
 # Replace Broken Images
 error_img:
-  flink: /img/friend_404.gif
-  post_page: /img/404.jpg
+  flink: /images/friend_404.gif
+  post_page: /images/404.jpg
 
 # A simple 404 page
 error_404:
-  enable: false
-  subtitle: 'Page Not Found'
-  background: /img/error-page.png
+  enable: enable
+  subtitle: '你迷路了~'
+  background: /images/404.jpg
 
 post_meta:
   # Home Page
@@ -293,11 +295,11 @@ aside:
     button:
       enable: true
       icon: fab fa-github
-      text: Follow Me
-      link: https://github.com/xxxxxx
+      text: 关注
+      link: https://github.com/Estom
   card_announcement:
     enable: true
-    content: This is my Blog
+    content: 欢迎参观Estom的小屋
   card_recent_post:
     enable: true
     # If set 0 will show all
@@ -433,7 +435,7 @@ copy:
 
 # Need to install the hexo-wordcount plugin
 wordcount:
-  enable: false
+  enable: true
   # Display the word count of the article in post meta
   post_wordcount: true
   # Display the time to read the article in post meta
@@ -478,7 +480,7 @@ math:
 search:
   # Choose: algolia_search / local_search / docsearch
   # leave it empty if you don't need search
-  use:
+  use: local_search
   placeholder:
 
   # Algolia Search
@@ -488,6 +490,7 @@ search:
 
   # Local Search
   local_search:
+    enable: true
     # Preload the search data when the page loads.
     preload: false
     # Show top n results per article, show all results by setting to -1
@@ -499,6 +502,10 @@ search:
       enable: false
       # Number of search results per page
       hitsPerPage: 8
+    labels:
+      input_placeholder: '搜索文章...'
+      hits_empty: '没找到关于“${query}”的结果'
+      hits_stats: '共找到 ${hits} 条结果（${time} ms）'
     CDN:
 
   # Docsearch
@@ -826,7 +833,7 @@ beautify:
 font:
   global_font_size:
   code_font_size:
-  font_family:
+  font_family: 'Noto Sans SC' #这里设置字体
   code_font_family:
 
 # Font settings for the site title and site subtitle

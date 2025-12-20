@@ -1,0 +1,29 @@
+#按着以下格式进行添加
+- class_name: 精美博客
+  class_desc: 参考一下精美的Hexo博客
+  flink_style: flexcard      # butterfly 4.x 推荐 flexcard，也可以 butterfly
+  link_list:
+    - name: Hexo 官网
+      link: https://hexo.io/zh-cn/
+      avatar: https://d33wubrfki0l68.cloudfront.net/6657ba50e702d84afb32fe846bed54fba1a77add/827ae/logo.svg
+      descr: 快速、简单且强大的博客框架
+    - name: Butterfly
+      link: https://butterfly.js.org/
+      avatar: https://butterfly.js.org/img/avatar.png
+      descr: 简洁强大的 Hexo 主题
+    - name: mobufan
+      link: https://www.mobufan.eu.org:666/
+      avatar: https://www.mobufan.eu.org:666/upload/mobufan-01.webp
+      descr: 墨不凡的博客
+    - name: Guole
+      link: https://blog.guole.fun/
+      avatar: https://blog.guole.fun/img/avatar.jpg
+      descr: 郭乐的博客
+- class_name: 工具站点
+  class_desc: 值得收藏
+  flink_style: butterfly
+  link_list:
+    - name: GitHub
+      link: https://github.com
+      avatar: https://github.com/favicon.ico
+      descr: 全球最大的代码托管平台

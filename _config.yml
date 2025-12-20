@@ -3,7 +3,7 @@
 ## Source: https://github.com/hexojs/hexo/
 
 # Site
-title: Estom's Blog
+title: Estom的博客
 subtitle: '一点一行，皆是生活'
 description: '也许那年在绿色的麦浪中奔跑的时候，就注定了我此生的繁华与悲叹'
 keywords:
@@ -102,3 +102,10 @@ theme: butterfly
 ## Docs: https://hexo.io/docs/one-command-deployment
 deploy:
   type: ''
+
+search:
+  path: search.xml
+  field: post
+  content: true           # 同时索引正文，false 仅标题+摘要
+  format: html
+  limit: 10000
