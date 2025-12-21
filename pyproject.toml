@@ -1,0 +1,28 @@
+[project]
+name = "hexo-blog-processor"
+version = "0.1.0"
+description = "Hexo blog helper scripts (sync notes, process posts, rename covers)"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "estom" }]
+dependencies = [
+  "pathspec>=0.12.1",
+  "jieba>=0.42.1",
+  "scikit-learn>=1.3",
+]
+
+[project.scripts]
+hexo-sync = "processor.sync:main"
+hexo-process-posts = "processor.process_posts:main"
+hexo-rename-covers = "processor.rename_covers:main"
+
+[build-system]
+requires = ["hatchling>=1.21.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["processor"]
+
+# 仓库替代
+[tool.uv]
+index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"

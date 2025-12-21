@@ -13,7 +13,139 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
-from typing import Dict, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
+
+
+_TAG_STOPWORDS = {
+	'note_image', 'images', 'image', 'img', 'http', 'https', 'www',
+	'true', 'false', 'null', 'none',
+}
+
+
+def _clean_text_for_tags(text: str) -> str:
+	# Remove common non-content segments to reduce noisy tokens.
+	clean = text
+	clean = re.sub(r"```[\s\S]*?```", "\n", clean)  # fenced code blocks
+	clean = re.sub(r"`[^`]+`", " ", clean)  # inline code
+	clean = re.sub(r"!\[[^\]]*\]\([^\)]*\)", " ", clean)  # markdown images
+	clean = re.sub(r"\[([^\]]+)\]\([^\)]*\)", r" \1 ", clean)  # markdown links -> keep text
+	clean = re.sub(r"<[^>]+>", " ", clean)  # html tags
+	clean = re.sub(r"https?://\S+", " ", clean)  # urls
+	clean = re.sub(r"\bwww\.\S+", " ", clean)
+	return clean
+
+
+def _jieba_tokenize(text: str) -> List[str]:
+	try:
+		import jieba
+	except Exception as exc:  # pragma: no cover
+		raise RuntimeError(
+			"缺少 Python 依赖 jieba，无法进行分词。\n"
+			"请在仓库根目录执行：pip install -r requirements.txt\n"
+			"或：pip install jieba"
+		) from exc
+
+	clean = _clean_text_for_tags(text)
+	result: List[str] = []
+	seen: Set[str] = set()
+	for t in jieba.cut(clean, cut_all=False):
+		w = (t or '').strip()
+		if not w:
+			continue
+		lw = w.lower()
+		if lw in _TAG_STOPWORDS:
+			continue
+		if lw in seen:
+			continue
+		# skip very short tokens
+		if len(w) < 2:
+			continue
+		# skip pure digits
+		if w.isdigit():
+			continue
+		# skip path-like tokens
+		if '/' in w or '\\' in w:
+			continue
+		seen.add(lw)
+		result.append(w)
+	return result
+
+
+def _build_tfidf_tag_index(
+	files: List[Path],
+	target_root: Path,
+	tag_count: int,
+	max_unique_tags: int,
+	verbose: bool,
+) -> Dict[str, List[str]]:
+	"""Compute global TF-IDF (IDF from full corpus) and select tags per file.
+
+	Returns: {rel_path_posix -> [tag, ...]}
+	"""
+	if tag_count <= 0 or not files:
+		return {}
+
+	try:
+		from sklearn.feature_extraction.text import TfidfVectorizer
+	except Exception as exc:  # pragma: no cover
+		raise RuntimeError(
+			"缺少 Python 依赖 scikit-learn，无法使用 sklearn 的 TF-IDF。\n"
+			"请在仓库根目录执行：pip install -r requirements.txt\n"
+			"或：pip install scikit-learn"
+		) from exc
+
+	# Build corpus: jieba tokens joined by spaces.
+	rel_paths: List[str] = []
+	corpus: List[str] = []
+	for p in files:
+		rel = p.relative_to(target_root).as_posix()
+		rel_paths.append(rel)
+		raw = _read_text_best_effort(p)
+		body = _strip_front_matter_if_any(raw)
+		tokens = _jieba_tokenize(body)
+		corpus.append(' '.join(tokens))
+
+	vectorizer = TfidfVectorizer(
+		# We already tokenized; keep tokens as-is.
+		tokenizer=str.split,
+		preprocessor=None,
+		token_pattern=None,
+		lowercase=False,
+	)
+	X = vectorizer.fit_transform(corpus)
+	features = vectorizer.get_feature_names_out()
+
+	used_global: Set[str] = set()
+	tags_by_path: Dict[str, List[str]] = {}
+
+	for i, rel in enumerate(rel_paths):
+		row = X.getrow(i)
+		if row.nnz == 0:
+			tags_by_path[rel] = []
+			continue
+		# Sort terms by TF-IDF score descending.
+		pairs = sorted(zip(row.indices, row.data), key=lambda x: x[1], reverse=True)
+		picked: List[str] = []
+		for idx, _score in pairs[: max(30, tag_count * 10)]:
+			t = str(features[int(idx)])
+			if not t:
+				continue
+			lt = t.lower()
+			if lt in _TAG_STOPWORDS:
+				continue
+			# Enforce global unique tag budget.
+			if lt not in used_global and len(used_global) >= max_unique_tags:
+				continue
+			if lt not in used_global:
+				used_global.add(lt)
+			picked.append(t)
+			if len(picked) >= tag_count:
+				break
+		tags_by_path[rel] = picked
+
+	if verbose:
+		print(f"[tags] unique={len(used_global)}/{max_unique_tags}")
+	return tags_by_path
 
 
 def _is_markdown(path: Path) -> bool:
@@ -438,8 +570,16 @@ def _build_git_time_index(repo_dir: Path, interest_paths: Set[str], date_kind: s
 	return result
 
 
-def _build_front_matter(title: str, created_epoch_seconds: int, updated_epoch_seconds: int, categories, cover_url: str) -> str:
+def _build_front_matter(
+	title: str,
+	created_epoch_seconds: int,
+	updated_epoch_seconds: int,
+	categories,
+	cover_url: str,
+	tags,
+) -> str:
 	title_json = json.dumps(title, ensure_ascii=False)
+	tags_yaml = _yaml_list_inline_or_block(tags)
 	cats = _yaml_list_inline_or_block(categories)
 	created_str = json.dumps(_format_hexo_datetime(created_epoch_seconds), ensure_ascii=False)
 	updated_str = json.dumps(_format_hexo_datetime(updated_epoch_seconds), ensure_ascii=False)
@@ -450,7 +590,7 @@ def _build_front_matter(title: str, created_epoch_seconds: int, updated_epoch_se
 		f"date: {created_str}\n"
 		f"updated: {updated_str}\n"
 		f"cover: {cover_str}\n"
-		"tags: []\n"
+		+ (f"tags: {tags_yaml}\n" if tags_yaml == '[]' else f"tags:{tags_yaml}\n")
 		+ (f"categories: {cats}\n" if cats == '[]' else f"categories:{cats}\n")
 		+ "---\n\n"
 	)
@@ -470,6 +610,8 @@ class ProcessConfig:
 	notes_dir: Path
 	repo_root: Path
 	image_root_url: str
+	tag_count: int
+	tag_budget: int
 	raw_wrap: str
 	escape_curly: bool
 	verbose: bool
@@ -478,6 +620,7 @@ class ProcessConfig:
 	git_batch: bool
 	require_git_history: bool
 	_time_cache: Dict[str, Tuple[int, int]]
+	_tags_by_path: Dict[str, List[str]]
 
 
 def process_file(cfg: ProcessConfig, path: Path) -> bool:
@@ -520,6 +663,11 @@ def process_file(cfg: ProcessConfig, path: Path) -> bool:
 	# cover extraction reference the new static directory.
 	body = _rewrite_relative_image_urls(cfg, path, body)
 
+	# Tags are precomputed from full corpus TF-IDF (global IDF) in process_directory.
+	tags: List[str] = []
+	if cfg._tags_by_path:
+		tags = cfg._tags_by_path.get(rel_to_target, [])
+
 	first_img = _extract_first_image_url(body)
 	cover_url = first_img if (first_img and _local_image_exists(cfg.repo_root, path, first_img)) else _default_cover_url(cfg.repo_root, rel_to_target)
 
@@ -529,6 +677,7 @@ def process_file(cfg: ProcessConfig, path: Path) -> bool:
 		updated_epoch_seconds=updated_epoch,
 		categories=categories,
 		cover_url=cover_url,
+		tags=tags,
 	)
 	if _should_raw_wrap(body, cfg.raw_wrap):
 		body = _wrap_body_raw(body)
@@ -549,6 +698,18 @@ def process_directory(cfg: ProcessConfig) -> int:
 
 	files = [p for p in sorted(cfg.target_dir.rglob('*')) if p.is_file() and _is_markdown(p)]
 	total = len(files)
+
+	# Build global TF-IDF tag index once (IDF from full corpus).
+	if cfg.tag_count > 0 and files:
+		cfg._tags_by_path.update(
+			_build_tfidf_tag_index(
+				files=files,
+				target_root=cfg.target_dir,
+				tag_count=int(cfg.tag_count),
+				max_unique_tags=int(cfg.tag_budget),
+				verbose=cfg.verbose,
+			)
+		)
 
 	# Build git time index once (huge speed-up vs per-file git calls).
 	if cfg.git_batch and files:
@@ -612,6 +773,8 @@ def main(argv=None) -> int:
 	parser.add_argument('--target', default='source/_posts', help='目标目录（默认：source/_posts）')
 	parser.add_argument('--notes', default=None, help='notes 仓库目录（默认：自动推断为 <repo_root>/notes）')
 	parser.add_argument('--image-root', default='/note_image', help='图片 URL 根路径（默认：/note_image）')
+	parser.add_argument('--tag-count', type=int, default=3, help='每篇文章提取标签数量（默认：3）')
+	parser.add_argument('--tag-budget', type=int, default=100, help='全局唯一标签总量上限（默认：100）')
 	parser.add_argument('--raw-wrap', choices=['auto', 'always', 'never'], default='auto', help='遇到模板语法时用 Nunjucks raw 包裹正文（默认：auto）')
 	parser.add_argument('--escape-curly', choices=['true', 'false'], default='true', help='是否转义 {{ }} 以避免 Nunjucks 解析（默认：true）')
 	parser.add_argument('--git-date', choices=['author', 'committer'], default='author', help='使用 git 的 author 时间或 committer 时间（默认：author）')
@@ -639,6 +802,8 @@ def main(argv=None) -> int:
 		notes_dir=notes_dir,
 		repo_root=repo_root,
 		image_root_url=str(args.image_root),
+		tag_count=int(args.tag_count),
+		tag_budget=int(args.tag_budget),
 		raw_wrap=str(args.raw_wrap),
 		escape_curly=str(args.escape_curly).lower() == 'true',
 		verbose=bool(args.verbose),
@@ -647,6 +812,7 @@ def main(argv=None) -> int:
 		git_batch=str(args.git_batch).lower() == 'true',
 		require_git_history=str(args.require_git_history).lower() == 'true',
 		_time_cache={},
+		_tags_by_path={},
 	)
 	return process_directory(cfg)
 

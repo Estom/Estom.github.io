@@ -324,10 +324,8 @@ def _sync(cfg: SyncConfig) -> int:
 
 	# Post-process all markdown under target_dir.
 	if cfg.post_process and not cfg.dry_run:
-		processor_script = (cfg.repo_root / 'processor' / 'process_posts.py').resolve()
-		if not processor_script.exists():
-			raise RuntimeError(f"缺少处理脚本：{processor_script}")
-		cmd = [sys.executable, str(processor_script), '--target', str(cfg.target_dir)]
+		# Invoke as module so it works both in-repo and when installed as a package.
+		cmd = [sys.executable, '-m', 'processor.process_posts', '--target', str(cfg.target_dir)]
 		if cfg.verbose:
 			cmd.append('--verbose')
 		try:
@@ -345,9 +343,22 @@ def _resolve_notes_dir(repo_root: Path, user_value: str) -> Path:
 	return (repo_root / p).resolve()
 
 
+def _find_repo_root(start: Path) -> Optional[Path]:
+	# Best-effort: walk up to find typical Hexo repo markers.
+	markers = {'package.json', '_config.yml'}
+	for p in [start, *start.parents]:
+		try:
+			if all((p / m).exists() for m in markers):
+				return p
+		except OSError:
+			continue
+	return None
+
+
 def main(argv: Optional[List[str]] = None) -> int:
-	# repo root is the parent directory of 'processor'
-	repo_root = Path(__file__).resolve().parents[1]
+	# Determine repo root from CWD when installed via uv.
+	# Fallback to script location for direct invocation.
+	repo_root = _find_repo_root(Path.cwd()) or Path(__file__).resolve().parents[1]
 	parser = argparse.ArgumentParser(
 		description="同步 notes 下的 Markdown + 图片 到 Hexo source/_posts（保留目录结构、支持 .bgignore、目录子树 Markdown 数量阈值）"
 	)
