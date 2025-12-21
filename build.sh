@@ -6,20 +6,31 @@ REPO_URL="git@gitee.com:Eyestorm/notes.git"
 NOTES_DIR="notes"
 BRANCH="master"
 
+SKIP_NOTES_GIT="${SKIP_NOTES_GIT:-0}"
+
+if [[ "$SKIP_NOTES_GIT" == "1" ]]; then
+	echo "[notes] SKIP_NOTES_GIT=1, skipping git clone/pull"
+	# Expect notes/ to be present in build context, or processing will run with empty notes.
+	# (Docker builds usually don't have SSH keys for private repos.)
+	if [[ ! -d "$NOTES_DIR" ]]; then
+		echo "[notes] $NOTES_DIR not found; continuing without updating notes"
+	fi
+else
+
 if [[ ! -d "$NOTES_DIR" ]]; then
 	echo "[notes] $NOTES_DIR not found, cloning from $REPO_URL ..."
 	git clone "$REPO_URL" "$NOTES_DIR"
 else
 	if [[ ! -d "$NOTES_DIR/.git" ]]; then
 		echo "[notes] $NOTES_DIR exists but is not a git repository (.git missing)."
-		echo "        Please move it away or remove it, then re-run."
-		exit 2
+		echo "        Will use existing files without git history."
+	else
+		echo "[notes] updating $NOTES_DIR ($BRANCH) ..."
+		git -C "$NOTES_DIR" fetch origin "$BRANCH"
+		git -C "$NOTES_DIR" checkout "$BRANCH"
+		git -C "$NOTES_DIR" pull --ff-only origin "$BRANCH"
 	fi
-
-	echo "[notes] updating $NOTES_DIR ($BRANCH) ..."
-	git -C "$NOTES_DIR" fetch origin "$BRANCH"
-	git -C "$NOTES_DIR" checkout "$BRANCH"
-	git -C "$NOTES_DIR" pull --ff-only origin "$BRANCH"
+fi
 fi
 
 uv sync

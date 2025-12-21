@@ -1,0 +1,10 @@
+node_modules
+.venv
+public
+.git
+.azure
+.DS_Store
+notes
+processor/__pycache__
+source/_posts
+source/note_image

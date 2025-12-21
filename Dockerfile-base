@@ -1,0 +1,27 @@
+FROM node:22-bookworm
+
+# Base image: Node 22 + Python 3.12 + uv
+# Note: We install Python 3.12 via uv to avoid relying on a separate python base image.
+
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends \
+		ca-certificates \
+		curl \
+		bash \
+	&& rm -rf /var/lib/apt/lists/*
+
+# Install uv (Astral) into /usr/local/bin so it's always on PATH
+RUN curl -LsSf https://astral.sh/uv/install.sh | XDG_BIN_HOME=/usr/local/bin sh -s -- --no-modify-path
+
+# Install Python 3.12 and expose it as python/python3.12
+RUN set -eux; \
+	uv --version; \
+	uv python install 3.12; \
+	py="$(uv python find 3.12)"; \
+	ln -sf "$py" /usr/local/bin/python3.12; \
+	ln -sf "$py" /usr/local/bin/python; \
+	python3.12 --version; \
+	node --version; \
+	npm --version
+
+WORKDIR /app
