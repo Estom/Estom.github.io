@@ -25,7 +25,7 @@
   - [x] 完成部署脚本deploy.sh，将文章部署到github pages.
   - [x] 完成启动脚本start.sh，在本地启动hexo的静态文件服务器。
   - [x] 通过docker打包镜像。并发布到个人的镜像仓库中。
-  - [ ] 使用github的gitactiongs功能进行自动化的部署。每次提交后重新打包镜像。推送到docker.hub镜像仓库和gitpages，完成部署
+  - [x] 使用github的gitactiongs功能进行自动化的部署。每次提交后重新打包镜像。推送到docker.hub镜像仓库和gitpages，完成部署
 - [x] 风格指南
   - [x] 安静、动漫卡通的小镇日常。
   - [TODO] ~~绿色的自然凤凰。~~
