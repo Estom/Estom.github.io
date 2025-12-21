@@ -22,7 +22,9 @@ else
 	git -C "$NOTES_DIR" pull --ff-only origin "$BRANCH"
 fi
 
-source .venv/bin/activate
-python processor/sync.py "$@"
+uv sync
+uv run hexo-sync "$@"
 
-hexo clean && hexo generate
+npm install
+npm run clean
+npm run build

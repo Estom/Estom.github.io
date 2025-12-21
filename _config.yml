@@ -13,7 +13,7 @@ timezone: 'Asia/Shanghai'
 
 # URL
 ## Set your site url here. For example, if you use GitHub Page, set url as 'https://username.github.io/project'
-url: https://github.com/Estom
+url: https://estom.github.com
 permalink: :year/:month/:day/:title/
 permalink_defaults:
 pretty_urls:
@@ -101,7 +101,11 @@ theme: butterfly
 # Deployment
 ## Docs: https://hexo.io/docs/one-command-deployment
 deploy:
-  type: ''
+  type: git
+  repo: git@github.com:Estom/Estom.github.io.git
+  # 例如：https://github.com/octocat/octocat.github.io.git
+  branch: main  # 分支名（GitHub Pages 推荐用 main，旧版可能是 master）
+  message: "Site updated: {{ now('YYYY-MM-DD HH:mm:ss') }}"  # 提交信息（可选）
 
 # 搜索插件的配置
 search:
