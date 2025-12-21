@@ -22,7 +22,7 @@
   - [TODO] ~~支持个人页和文章页的打赏功能。想的太早~~
 - [ ] 自动化部署
   - [x] 完成构建脚本build.sh，从notes仓库中拉取文章，进行数据处理，并生成静态文件
-  - [ ] 完成部署脚本deploy.sh，将文章部署到github pages.
+  - [x] 完成部署脚本deploy.sh，将文章部署到github pages.
   - [ ] 完成启动脚本start.sh，在本地启动hexo的静态文件服务器。
   - [ ] 启动一个定时任务，每天凌晨两点检测notes仓库是否有更新。如果有更新，则重新执行构建、部署、启动等核心操作。
 - [x] 风格指南
@@ -31,6 +31,12 @@
   - [TODO] ~~赛博朋克~~
   - [TODO] ~~科幻、宇宙和星辰~~
 
+
+CICI 流水线的过程
+1. notes工程开发
+2. build.sh构建脚本 / docker_build.sh 打包镜像到本地
+3. deploy.sh将工程部署到github pages /docker_deploy.sh 推送镜像到镜像仓库
+4. start.sh 启动当前的脚本。 /docker_run.sh 启动容器服务
 **主要内容**
 
 - 站点源码：根目录与 `source/`、`scaffolds/`、`public/` 等目录

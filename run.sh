@@ -1,1 +1,1 @@
-hexo clean && hexo generate && hexo server
+npm run server
