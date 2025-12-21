@@ -5,16 +5,12 @@
 #   - Python 3.12
 #   - uv
 # Build it locally from Dockerfile-base:
-#   docker build -f Dockerfile-base -t hexo-base:node22-py312-uv .
-FROM hexo-base:node22-py312-uv AS build
+#   docker build -f Dockerfile-base -t hexo-blog:base-node22-py312 .
+FROM hexo-blog:base-node22-py312 AS build
 
 WORKDIR /app
 
 COPY . .
-
-# During Docker builds we typically don't have SSH keys for gitee.
-# Use the checked-in notes/ directory (or any notes present in build context).
-ENV SKIP_NOTES_GIT=1
 
 RUN bash ./build.sh
 

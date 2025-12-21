@@ -12,3 +12,4 @@ source/_posts/
 __pycache__/
 note_image
 notes/
+.deploy_git/

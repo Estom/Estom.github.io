@@ -2,20 +2,11 @@
 # 在build阶段完成数据的处理，生成可部署的产物
 set -euo pipefail
 
-REPO_URL="git@gitee.com:Eyestorm/notes.git"
+REPO_URL="https://gitee.com/Eyestorm/notes.git"
 NOTES_DIR="notes"
 BRANCH="master"
 
 SKIP_NOTES_GIT="${SKIP_NOTES_GIT:-0}"
-
-if [[ "$SKIP_NOTES_GIT" == "1" ]]; then
-	echo "[notes] SKIP_NOTES_GIT=1, skipping git clone/pull"
-	# Expect notes/ to be present in build context, or processing will run with empty notes.
-	# (Docker builds usually don't have SSH keys for private repos.)
-	if [[ ! -d "$NOTES_DIR" ]]; then
-		echo "[notes] $NOTES_DIR not found; continuing without updating notes"
-	fi
-else
 
 if [[ ! -d "$NOTES_DIR" ]]; then
 	echo "[notes] $NOTES_DIR not found, cloning from $REPO_URL ..."
@@ -30,7 +21,6 @@ else
 		git -C "$NOTES_DIR" checkout "$BRANCH"
 		git -C "$NOTES_DIR" pull --ff-only origin "$BRANCH"
 	fi
-fi
 fi
 
 uv sync

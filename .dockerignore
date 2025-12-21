@@ -8,3 +8,4 @@ notes
 processor/__pycache__
 source/_posts
 source/note_image
+.deploy_git/

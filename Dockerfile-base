@@ -1,27 +1,70 @@
-FROM node:22-bookworm
+FROM ubuntu:24.04
 
-# Base image: Node 22 + Python 3.12 + uv
-# Note: We install Python 3.12 via uv to avoid relying on a separate python base image.
+ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update \
-	&& apt-get install -y --no-install-recommends \
-		ca-certificates \
-		curl \
-		bash \
-	&& rm -rf /var/lib/apt/lists/*
+# 国内镜像（Ubuntu 24.04 默认使用 deb822：/etc/apt/sources.list.d/ubuntu.sources）
+ARG UBUNTU_MIRROR_HOST=mirrors.aliyun.com
+ARG UBUNTU_CODENAME=noble
 
-# Install uv (Astral) into /usr/local/bin so it's always on PATH
-RUN curl -LsSf https://astral.sh/uv/install.sh | XDG_BIN_HOME=/usr/local/bin sh -s -- --no-modify-path
-
-# Install Python 3.12 and expose it as python/python3.12
+# 不依赖“原文件包含某些URL字符串”的替换：直接禁用原源并写入国内源
 RUN set -eux; \
-	uv --version; \
-	uv python install 3.12; \
-	py="$(uv python find 3.12)"; \
-	ln -sf "$py" /usr/local/bin/python3.12; \
-	ln -sf "$py" /usr/local/bin/python; \
-	python3.12 --version; \
-	node --version; \
-	npm --version
+    arch="$(dpkg --print-architecture)"; \
+    mirror_path="ubuntu"; \
+    case "$arch" in \
+        arm64|armhf|armel) mirror_path="ubuntu-ports" ;; \
+    esac; \
+    mirror_uri="http://${UBUNTU_MIRROR_HOST}/${mirror_path}/"; \
+    # Ubuntu 24.04 常见为 deb822 源：禁用它，避免仍然走默认海外源
+    if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then \
+        mv /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.bak; \
+    fi; \
+    # 你已确认 /etc/apt/sources.list 里没配置国内镜像：这里直接追加国内镜像源即可
+    if [ -f /etc/apt/sources.list ]; then \
+        sed -i \
+          -e 's/^[[:space:]]*deb[[:space:]]\+/# deb /' \
+          -e 's/^[[:space:]]*deb-src[[:space:]]\+/# deb-src /' \
+          /etc/apt/sources.list; \
+    else \
+        touch /etc/apt/sources.list; \
+    fi; \
+    printf '%s\n' \
+      "deb ${mirror_uri} ${UBUNTU_CODENAME} main restricted universe multiverse" \
+      "deb ${mirror_uri} ${UBUNTU_CODENAME}-updates main restricted universe multiverse" \
+      "deb ${mirror_uri} ${UBUNTU_CODENAME}-backports main restricted universe multiverse" \
+      "deb ${mirror_uri} ${UBUNTU_CODENAME}-security main restricted universe multiverse" \
+      >> /etc/apt/sources.list; \
+    apt-get update; \
+    apt-get upgrade -y
 
+# 安装基本工具：git, curl, wget, vim, net-tools (包含netstat), iputils-ping (包含ping)等，用于问题排查
+RUN set -eux; \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        git curl wget vim \
+        net-tools iputils-ping \
+        python3 python3-pip \
+        gnupg; \
+    rm -rf /var/lib/apt/lists/*
+
+# 安装Node.js 22（使用NodeSource仓库）
+RUN set -eux; \
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -; \
+    apt-get install -y --no-install-recommends nodejs; \
+    rm -rf /var/lib/apt/lists/*
+
+# npm 国内源
+RUN npm config set registry https://registry.npmmirror.com
+
+# pip/uv 国内源（对 pip/uv 生效）
+ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
+    PIP_TRUSTED_HOST=mirrors.aliyun.com \
+    UV_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+
+# 安装uv（使用pip安装，避免curl下载脚本的潜在网络问题）
+RUN pip3 install uv --break-system-packages
+
+# 设置工作目录（可选，根据需要）
 WORKDIR /app
+
+# 清理apt缓存，减小镜像大小
+RUN apt-get clean && rm -rf /var/lib/apt/lists/*
