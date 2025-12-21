@@ -44,6 +44,7 @@ class SyncConfig:
 	repo_root: Path
 	notes_dir: Path
 	target_dir: Path
+	image_target_dir: Path
 	ignore_file: Path
 	min_md_per_tree: int
 	dry_run: bool
@@ -54,6 +55,13 @@ class SyncConfig:
 
 def _is_markdown(path: Path) -> bool:
 	return path.suffix.lower() in {'.md', '.markdown'}
+
+
+def _is_image(path: Path) -> bool:
+	# Common image types used in markdown notes.
+	return path.suffix.lower() in {
+		'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.tiff', '.tif', '.ico', '.avif'
+	}
 
 
 def _extract_title_from_markdown(content: str, fallback: str) -> str:
@@ -141,14 +149,16 @@ def _read_text_best_effort(path: Path) -> str:
 		return path.read_text(encoding='utf-8', errors='replace')
 
 
-def _walk_notes(cfg: SyncConfig, ignore_spec) -> Tuple[List[str], Dict[str, int], Set[str]]:
-	"""Return (md_files, local_md_count_by_dir, all_dirs).
+def _walk_notes(cfg: SyncConfig, ignore_spec) -> Tuple[List[str], List[str], Dict[str, int], Set[str]]:
+	"""Return (md_files, image_files, local_md_count_by_dir, all_dirs).
 
 	- md_files: list of markdown file paths relative to notes_dir (POSIX)
+	- image_files: list of image file paths relative to notes_dir (POSIX)
 	- local_md_count_by_dir: dir_rel_posix -> markdown count directly under that dir
 	- all_dirs: set of all visited directories (dir_rel_posix), including '.'
 	"""
 	md_files: List[str] = []
+	image_files: List[str] = []
 	local_counts: Dict[str, int] = {}
 	all_dirs: Set[str] = set()
 
@@ -188,10 +198,13 @@ def _walk_notes(cfg: SyncConfig, ignore_spec) -> Tuple[List[str], Dict[str, int]
 			if _is_markdown(src):
 				md_files.append(rel_f_posix)
 				count_here += 1
+			elif _is_image(src):
+				image_files.append(rel_f_posix)
 		local_counts[rel_dir_posix] = local_counts.get(rel_dir_posix, 0) + count_here
 
 	md_files.sort()
-	return md_files, local_counts, all_dirs
+	image_files.sort()
+	return md_files, image_files, local_counts, all_dirs
 
 
 def _compute_subtree_counts(local_counts: Dict[str, int], all_dirs: Set[str]) -> Dict[str, int]:
@@ -216,11 +229,12 @@ def _compute_subtree_counts(local_counts: Dict[str, int], all_dirs: Set[str]) ->
 
 def _sync(cfg: SyncConfig) -> int:
 	ignore_spec = _load_ignore_spec(cfg.ignore_file)
-	md_files, local_counts, all_dirs = _walk_notes(cfg, ignore_spec)
+	md_files, image_files, local_counts, all_dirs = _walk_notes(cfg, ignore_spec)
 	subtree_counts = _compute_subtree_counts(local_counts, all_dirs)
 
 	if cfg.verbose:
 		print(f"[scan] markdown files found (after ignore): {len(md_files)}")
+		print(f"[scan] image files found (after ignore): {len(image_files)}")
 
 	# Directories whose whole subtree has at least N markdown files
 	eligible_dirs = {d for d, c in subtree_counts.items() if c >= cfg.min_md_per_tree}
@@ -233,26 +247,45 @@ def _sync(cfg: SyncConfig) -> int:
 	if cfg.delete_before_sync:
 		if cfg.dry_run:
 			print(f"[dry-run] delete markdown under {cfg.target_dir}")
+			print(f"[dry-run] delete images under {cfg.image_target_dir}")
 		else:
 			if cfg.target_dir.exists():
-				deleted = 0
+				deleted_md = 0
 				for p in cfg.target_dir.rglob('*'):
 					if p.is_file() and _is_markdown(p):
 						p.unlink()
-						deleted += 1
+						deleted_md += 1
 				# attempt to remove empty dirs bottom-up
 				for d in sorted((x for x in cfg.target_dir.rglob('*') if x.is_dir()), key=lambda x: len(x.as_posix()), reverse=True):
 					try:
 						d.rmdir()
 					except OSError:
 						pass
-					if cfg.verbose:
-						print(f"[delete] removed markdown files: {deleted}")
+				if cfg.verbose:
+					print(f"[delete] removed markdown files: {deleted_md}")
 			else:
 				cfg.target_dir.mkdir(parents=True, exist_ok=True)
 
+			if cfg.image_target_dir.exists():
+				deleted_img = 0
+				for p in cfg.image_target_dir.rglob('*'):
+					if p.is_file() and _is_image(p):
+						p.unlink()
+						deleted_img += 1
+				# attempt to remove empty dirs bottom-up
+				for d in sorted((x for x in cfg.image_target_dir.rglob('*') if x.is_dir()), key=lambda x: len(x.as_posix()), reverse=True):
+					try:
+						d.rmdir()
+					except OSError:
+						pass
+				if cfg.verbose:
+					print(f"[delete] removed image files: {deleted_img}")
+			else:
+				cfg.image_target_dir.mkdir(parents=True, exist_ok=True)
+
 	copied = 0
 	skipped = 0
+	copied_images = 0
 
 	for rel_posix in md_files:
 		rel_path = Path(rel_posix)
@@ -274,7 +307,20 @@ def _sync(cfg: SyncConfig) -> int:
 			dst.write_text(raw, encoding='utf-8')
 		copied += 1
 
-	print(f"done: copied={copied}, skipped={skipped}, target={cfg.target_dir}")
+	# Copy ALL images (after ignore) while keeping the directory structure.
+	# Images are not gated by the markdown subtree threshold to avoid breaking relative references.
+	for rel_posix in image_files:
+		rel_path = Path(rel_posix)
+		src = cfg.notes_dir / rel_path
+		dst = cfg.image_target_dir / rel_path
+		if cfg.dry_run:
+			print(f"[dry-run] copy {src} -> {dst}")
+		else:
+			dst.parent.mkdir(parents=True, exist_ok=True)
+			shutil.copy2(src, dst)
+		copied_images += 1
+
+	print(f"done: copied_md={copied}, skipped_md={skipped}, copied_img={copied_images}, target={cfg.target_dir}")
 
 	# Post-process all markdown under target_dir.
 	if cfg.post_process and not cfg.dry_run:
@@ -303,10 +349,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 	# repo root is the parent directory of 'processor'
 	repo_root = Path(__file__).resolve().parents[1]
 	parser = argparse.ArgumentParser(
-		description="同步 notes 下的 Markdown 到 Hexo source/_posts（保留目录结构、支持 .bgignore、目录子树 Markdown 数量阈值）"
+		description="同步 notes 下的 Markdown + 图片 到 Hexo source/_posts（保留目录结构、支持 .bgignore、目录子树 Markdown 数量阈值）"
 	)
 	parser.add_argument('--notes', default='notes', help='notes 目录路径（默认：仓库根目录下的 notes）')
 	parser.add_argument('--target', default='source/_posts', help='目标目录（默认：source/_posts）')
+	parser.add_argument('--image-target', default='source/note_image', help='图片目标目录（默认：source/note_image）')
 	parser.add_argument('--ignore-file', default='.bgignore', help='忽略规则文件（默认：.bgignore）')
 	parser.add_argument('--min-md', type=int, default=2, help='目录子树内最少 Markdown 数（默认：2）')
 	parser.add_argument('--delete', action='store_true', help='同步前清空目标目录下所有 Markdown 文档，然后重新生成')
@@ -318,6 +365,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 	notes_dir = _resolve_notes_dir(repo_root, args.notes)
 	target_dir = (repo_root / args.target).resolve()
+	image_target_dir = (repo_root / args.image_target).resolve()
 	ignore_file = (repo_root / args.ignore_file).resolve()
 
 	if not notes_dir.exists() or not notes_dir.is_dir():
@@ -329,6 +377,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 		repo_root=repo_root,
 		notes_dir=notes_dir,
 		target_dir=target_dir,
+		image_target_dir=image_target_dir,
 		ignore_file=ignore_file,
 		min_md_per_tree=max(1, int(args.min_md)),
 		dry_run=bool(args.dry_run),

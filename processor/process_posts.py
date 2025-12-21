@@ -2,13 +2,17 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import posixpath
+import re
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 from typing import Dict, Optional, Set, Tuple
 
 
@@ -85,6 +89,191 @@ def _yaml_list_inline_or_block(values) -> str:
 	for v in values:
 		lines.append(f"  - {json.dumps(v, ensure_ascii=False)}")
 	return '\n'.join(lines)
+
+
+_MD_IMAGE_RE = re.compile(
+	r"!\[[^\]]*\]\(\s*<?([^\s)>]+)>?(?:\s+['\"]?[^'\"]*['\"]?)?\s*\)",
+	flags=re.IGNORECASE,
+)
+_HTML_IMG_RE = re.compile(r"<img\b[^>]*?\bsrc=['\"]([^'\"]+)['\"][^>]*>", flags=re.IGNORECASE)
+
+
+_MD_IMAGE_SUB_RE = re.compile(
+	r"(!\[[^\]]*\]\(\s*<?)([^\s)>]+)(>?)(\s*(?:['\"][^'\"]*['\"])?\s*\))",
+	flags=re.IGNORECASE,
+)
+
+
+def _is_site_absolute(url: str) -> bool:
+	u = (url or '').strip()
+	return u.startswith('/')
+
+
+def _rewrite_relative_image_url_for_md(cfg: 'ProcessConfig', md_file: Path, url: str) -> str:
+	"""Rewrite a relative image URL to /note_image/<resolved> based on md_file path.
+
+	Example:
+	- md_file: <target>/Java/a.md
+	- url: ./image/test.jpg
+	=> /note_image/Java/image/test.jpg
+	"""
+	if not url:
+		return url
+	if _is_remote_or_data_url(url) or _is_site_absolute(url):
+		return url
+
+	parts = urlsplit(url)
+	path_part = (parts.path or '').strip()
+	if not path_part:
+		return url
+
+	# Already rewritten or already rooted at note_image.
+	if path_part.startswith('note_image/') or path_part.startswith('/note_image/'):
+		return url
+
+	# Normalize Windows separators if present.
+	path_part = path_part.replace('\\', '/')
+
+	try:
+		rel_md = md_file.relative_to(cfg.target_dir).as_posix()
+	except ValueError:
+		rel_md = md_file.name
+	md_dir = posixpath.dirname(rel_md)
+	if not md_dir:
+		md_dir = '.'
+
+	joined = posixpath.normpath(posixpath.join(md_dir, path_part))
+	# Ensure no leading './'
+	joined = joined.lstrip('./')
+	root = (cfg.image_root_url or '/note_image').rstrip('/')
+	rewritten_path = f"{root}/{joined}" if joined else root
+
+	# Preserve query/fragment.
+	if parts.query:
+		rewritten_path += f"?{parts.query}"
+	if parts.fragment:
+		rewritten_path += f"#{parts.fragment}"
+	return rewritten_path
+
+
+def _rewrite_relative_image_urls(cfg: 'ProcessConfig', md_file: Path, markdown_body: str) -> str:
+	# Markdown image syntax
+	def md_repl(m: re.Match) -> str:
+		prefix, url, angle, suffix = m.group(1), m.group(2), m.group(3), m.group(4)
+		new_url = _rewrite_relative_image_url_for_md(cfg, md_file, url)
+		return f"{prefix}{new_url}{angle}{suffix}"
+
+	out = _MD_IMAGE_SUB_RE.sub(md_repl, markdown_body)
+
+	# HTML <img src="...">
+	def html_repl(m: re.Match) -> str:
+		url = m.group(1)
+		new_url = _rewrite_relative_image_url_for_md(cfg, md_file, url)
+		return m.group(0).replace(url, new_url, 1)
+
+	out = _HTML_IMG_RE.sub(html_repl, out)
+	return out
+
+
+def _extract_first_image_url(markdown_body: str) -> Optional[str]:
+	"""Return the first image URL in the body (Markdown image or HTML <img>)."""
+	best_pos: Optional[int] = None
+	best_url: Optional[str] = None
+
+	for m in _MD_IMAGE_RE.finditer(markdown_body):
+		url = (m.group(1) or '').strip()
+		if not url:
+			continue
+		best_pos = m.start()
+		best_url = url
+		break
+
+	# If HTML <img> appears earlier than the first Markdown image, prefer it.
+	for m in _HTML_IMG_RE.finditer(markdown_body):
+		url = (m.group(1) or '').strip()
+		if not url:
+			continue
+		if best_pos is None or m.start() < best_pos:
+			best_pos = m.start()
+			best_url = url
+		break
+
+	return best_url
+
+
+def _is_remote_or_data_url(url: str) -> bool:
+	u = (url or '').strip().lower()
+	return u.startswith('http://') or u.startswith('https://') or u.startswith('//') or u.startswith('data:')
+
+
+def _local_image_exists(repo_root: Path, md_file: Path, url: str) -> bool:
+	"""Best-effort check whether a referenced image exists locally.
+
+	Rules:
+	- remote/data URLs are treated as existing
+	- leading '/' maps to <repo_root>/source/<path>
+	- relative path checks (md_file.parent/<path>) then (<repo_root>/source/<path>)
+	- ignores query/hash fragments
+	"""
+	if not url:
+		return False
+	if _is_remote_or_data_url(url):
+		return True
+
+	parts = urlsplit(url)
+	path_part = (parts.path or '').strip()
+	if not path_part:
+		return False
+
+	# Strip wrapping angle brackets, just in case.
+	if path_part.startswith('<') and path_part.endswith('>'):
+		path_part = path_part[1:-1]
+
+	# Normalize Windows separators if present.
+	path_part = path_part.replace('\\\\', '/')
+
+	# Absolute from site root: map to repo_root/source
+	if path_part.startswith('/'):
+		p = (repo_root / 'source' / path_part.lstrip('/')).resolve()
+		return p.exists()
+
+	# Relative: try relative to md file first.
+	p1 = (md_file.parent / path_part).resolve()
+	if p1.exists():
+		return True
+	# Also try repo_root/source/<path> as a common Hexo convention.
+	p2 = (repo_root / 'source' / path_part).resolve()
+	return p2.exists()
+
+
+def _stable_cover_index(key: str, n: int = 100) -> int:
+	"""Return 1..n stable index based on key (file name / relative path)."""
+	key_bytes = (key or '').encode('utf-8', errors='surrogatepass')
+	digest = hashlib.sha1(key_bytes).digest()
+	value = int.from_bytes(digest[:8], 'big', signed=False)
+	return (value % n) + 1
+
+
+def _default_cover_url(repo_root: Path, key: str) -> str:
+	"""Pick a deterministic cover from 100 images.
+
+	Prefer an existing file among:
+	- /image/cover/cover-{i}.jpg
+	- /images/cover/cover-{i}.jpg
+	"""
+	idx0 = _stable_cover_index(key, 100)
+	prefixes = ['/image/cover', '/images/cover']
+
+	# Robustness: if some numbers are missing, probe forward (wrap-around) deterministically.
+	for offset in range(0, 100):
+		i = ((idx0 - 1 + offset) % 100) + 1
+		for prefix in prefixes:
+			url = f"{prefix}/cover-{i}.jpg"
+			if (repo_root / 'source' / url.lstrip('/')).exists():
+				return url
+
+	# Last resort: return the deterministic choice even if files aren't found.
+	return f"/images/cover/cover-{idx0}.jpg"
 
 
 def _format_hexo_datetime(epoch_seconds: int) -> str:
@@ -249,16 +438,18 @@ def _build_git_time_index(repo_dir: Path, interest_paths: Set[str], date_kind: s
 	return result
 
 
-def _build_front_matter(title: str, created_epoch_seconds: int, updated_epoch_seconds: int, categories) -> str:
+def _build_front_matter(title: str, created_epoch_seconds: int, updated_epoch_seconds: int, categories, cover_url: str) -> str:
 	title_json = json.dumps(title, ensure_ascii=False)
 	cats = _yaml_list_inline_or_block(categories)
 	created_str = json.dumps(_format_hexo_datetime(created_epoch_seconds), ensure_ascii=False)
 	updated_str = json.dumps(_format_hexo_datetime(updated_epoch_seconds), ensure_ascii=False)
+	cover_str = json.dumps(cover_url, ensure_ascii=False)
 	return (
 		"---\n"
 		f"title: {title_json}\n"
 		f"date: {created_str}\n"
 		f"updated: {updated_str}\n"
+		f"cover: {cover_str}\n"
 		"tags: []\n"
 		+ (f"categories: {cats}\n" if cats == '[]' else f"categories:{cats}\n")
 		+ "---\n\n"
@@ -277,6 +468,8 @@ def _top_level_category(target_root: Path, file_path: Path) -> Optional[str]:
 class ProcessConfig:
 	target_dir: Path
 	notes_dir: Path
+	repo_root: Path
+	image_root_url: str
 	raw_wrap: str
 	escape_curly: bool
 	verbose: bool
@@ -323,11 +516,19 @@ def process_file(cfg: ProcessConfig, path: Path) -> bool:
 			cfg._time_cache[rel_to_target] = times
 			created_epoch, updated_epoch = times
 
+	# Rewrite relative image URLs to /note_image/... so both the post content and
+	# cover extraction reference the new static directory.
+	body = _rewrite_relative_image_urls(cfg, path, body)
+
+	first_img = _extract_first_image_url(body)
+	cover_url = first_img if (first_img and _local_image_exists(cfg.repo_root, path, first_img)) else _default_cover_url(cfg.repo_root, rel_to_target)
+
 	front_matter = _build_front_matter(
 		title=title,
 		created_epoch_seconds=created_epoch,
 		updated_epoch_seconds=updated_epoch,
 		categories=categories,
+		cover_url=cover_url,
 	)
 	if _should_raw_wrap(body, cfg.raw_wrap):
 		body = _wrap_body_raw(body)
@@ -410,6 +611,7 @@ def main(argv=None) -> int:
 	)
 	parser.add_argument('--target', default='source/_posts', help='目标目录（默认：source/_posts）')
 	parser.add_argument('--notes', default=None, help='notes 仓库目录（默认：自动推断为 <repo_root>/notes）')
+	parser.add_argument('--image-root', default='/note_image', help='图片 URL 根路径（默认：/note_image）')
 	parser.add_argument('--raw-wrap', choices=['auto', 'always', 'never'], default='auto', help='遇到模板语法时用 Nunjucks raw 包裹正文（默认：auto）')
 	parser.add_argument('--escape-curly', choices=['true', 'false'], default='true', help='是否转义 {{ }} 以避免 Nunjucks 解析（默认：true）')
 	parser.add_argument('--git-date', choices=['author', 'committer'], default='author', help='使用 git 的 author 时间或 committer 时间（默认：author）')
@@ -421,6 +623,9 @@ def main(argv=None) -> int:
 
 	target_dir = Path(args.target).resolve()
 	repo_root = _find_repo_root_from_target(target_dir)
+	if repo_root is None:
+		# Best-effort fallback to script location: <repo_root>/processor/process_posts.py
+		repo_root = Path(__file__).resolve().parents[1]
 	if args.notes:
 		notes_dir = Path(args.notes).resolve()
 	else:
@@ -432,6 +637,8 @@ def main(argv=None) -> int:
 	cfg = ProcessConfig(
 		target_dir=target_dir,
 		notes_dir=notes_dir,
+		repo_root=repo_root,
+		image_root_url=str(args.image_root),
 		raw_wrap=str(args.raw_wrap),
 		escape_curly=str(args.escape_curly).lower() == 'true',
 		verbose=bool(args.verbose),

@@ -10,3 +10,5 @@ notes/
 .venv
 source/_posts/
 __pycache__/
+note_image
+notes/

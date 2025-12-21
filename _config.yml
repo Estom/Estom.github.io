@@ -103,6 +103,7 @@ theme: butterfly
 deploy:
   type: ''
 
+# 搜索插件的配置
 search:
   path: search.xml
   field: post
