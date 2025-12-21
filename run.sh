@@ -1,1 +1,1 @@
-npm run server
+nohup hexo server -p 4001 &
