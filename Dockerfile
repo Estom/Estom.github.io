@@ -6,7 +6,7 @@
 #   - uv
 # Build it locally from Dockerfile-base:
 #   docker build -f Dockerfile-base -t hexo-blog:base-node22-py312 .
-FROM hexo-blog:base-node22-py312 AS build
+FROM ghcr.io/Estom/hexo-blog:base-node22-py312 AS build
 
 WORKDIR /app
 

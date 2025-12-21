@@ -1,2 +1,2 @@
-docker build -t hexo-blog:base-node22-py312 -f Dockerfile-base .
-docker build -t hexo-blog:local-20251221 .
+# docker build -t ghcr.io/estom/hexo-blog:base-node22-py32 -f Dockerfile-base .
+docker build -t ghcr.io/estom/hexo-blog:v1.0.0 .
