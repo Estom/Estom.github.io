@@ -65,8 +65,9 @@ jobs:
         with:
           context: .
           file: Dockerfile-base
-          tags: hexo-base:node22-py312-uv
-          load: true
+          push: true
+          tags: |
+            ${{ steps.vars.outputs.image }}:base-node22-py312
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -76,6 +77,8 @@ jobs:
           context: .
           file: Dockerfile
           push: true
+          build-args: |
+            BASE_IMAGE=${{ steps.vars.outputs.image }}:base-node22-py312
           tags: |
             ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.sha_tag }}
             ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.ref_tag }}
@@ -89,6 +92,8 @@ jobs:
           context: .
           file: Dockerfile
           push: true
+          build-args: |
+            BASE_IMAGE=${{ steps.vars.outputs.image }}:base-node22-py312
           tags: |
             ${{ steps.vars.outputs.image }}:latest
           cache-from: type=gha

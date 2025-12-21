@@ -1,12 +1,14 @@
 # syntax=docker/dockerfile:1
 
-# Build stage uses the prebuilt base image:
+# Build stage uses a prebuilt base image:
 #   - Node.js 22
 #   - Python 3.12
 #   - uv
-# Build it locally from Dockerfile-base:
-#   docker build -f Dockerfile-base -t hexo-blog:base-node22-py312 .
-FROM ghcr.io/estom/hexo-blog:base-node22-py312 AS build
+#
+# The base image reference is configurable so CI can point it at the
+# same registry/repository it pushes to.
+ARG BASE_IMAGE=ghcr.io/estom/hexo-blog:base-node22-py312
+FROM ${BASE_IMAGE} AS build
 
 WORKDIR /app
 
