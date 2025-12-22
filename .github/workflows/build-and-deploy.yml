@@ -25,17 +25,40 @@ jobs:
 
     container:
       image: ghcr.io/estom/hexo-blog:build-v1.0.0-9
-    # container:
-    #   image: ${{ needs.docker.outputs.build_image_ref }}
+
+    env:
+      REGISTRY: ${{ secrets.REGISTRY || 'ghcr.io' }}
 
     steps:
+      - name: Login to GHCR
+        if: env.REGISTRY == 'ghcr.io'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GHCR_USERNAME || github.actor }}
+          password: ${{ secrets.GHCR_TOKEN || github.token }}
+
+      - name: Login to custom registry
+        if: env.REGISTRY != 'ghcr.io'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
       - name: Prepare Pages content
         shell: bash
         run: |
           set -euo pipefail
-          test -d /app/public
           mkdir -p _site
-          cp -a /app/public/. _site/
+
+          image_ref='${{ needs.docker.outputs.build_image_ref }}'
+          docker pull "$image_ref"
+
+          cid="$(docker create "$image_ref")"
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+
+          docker cp "$cid":/app/public/. _site/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -73,6 +96,7 @@ jobs:
   #   env:
   #     REGISTRY: ${{ secrets.REGISTRY || 'ghcr.io' }}
   #     IMAGE_NAME: ${{ secrets.IMAGE_NAME || github.repository }}
+    
 
   #   steps:
   #     - name: Checkout
