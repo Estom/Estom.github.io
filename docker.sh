@@ -11,3 +11,6 @@ docker run -d --name notes -p 80:80 ghcr.io/estom/hexo-blog:run-v1.0.0
 
 # 本地启动hexo 服务器。不适用docker打包的方式
 # nohup hexo server -p 4001 &
+
+# 本地部署到github pages的主页。依赖本地的账号权限，和_config.yml中deploy的配置
+# hexo deploy

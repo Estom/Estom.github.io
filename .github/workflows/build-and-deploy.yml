@@ -2,6 +2,8 @@ name: Build Docker image and Deploy Pages
 
 on:
   push:
+    branches:
+      - master
   workflow_dispatch:
 
 permissions:
@@ -13,32 +15,48 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  pages:
-    name: Deploy to GitHub Pages (via deploy.sh)
+  pages_build:
+    name: Build Pages artifact (from /app/public)
     runs-on: ubuntu-latest
+    # needs: docker
+    permissions:
+      contents: read
+      packages: read
 
-    # Run deployment inside the build image so Node/Hexo/Python are already available.
     container:
       image: ghcr.io/estom/hexo-blog:build-v1.0.0-9
-      credentials:
-        username: ${{ secrets.GHCR_USERNAME || github.actor }}
-        password: ${{ secrets.GHCR_TOKEN || github.token }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    # container:
+    #   image: ${{ needs.docker.outputs.build_image_ref }}
 
-      - name: Deploy
-        env:
-          # Use a PAT that can push to the Pages repo (e.g. Estom/Estom.github.io)
-          # Fine-grained PAT: Contents: Read & Write on the target repo
-          PAGES_REPO_TOKEN: ${{ secrets.PAGES_REPO_TOKEN }}
-          # Optional overrides
-          PAGES_REPO: ${{ secrets.PAGES_REPO || 'Estom/Estom.github.io' }}
-          PAGES_BRANCH: ${{ secrets.PAGES_BRANCH || 'main' }}
+    steps:
+      - name: Prepare Pages content
+        shell: bash
         run: |
-          cd /app
-          chmod +x ./deploy.sh
-          ./deploy.sh
+          set -euo pipefail
+          test -d /app/public
+          mkdir -p _site
+          cp -a /app/public/. _site/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  pages_deploy:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: pages_build
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
   
   # docker:
   #   name: Build & Push Image
@@ -149,31 +167,4 @@ jobs:
   #         cache-from: type=gha
   #         cache-to: type=gha,mode=max
 
-  # pages:
-  #   name: Deploy to GitHub Pages (via deploy.sh)
-  #   runs-on: ubuntu-latest
-  #   needs: docker
 
-  #   # Run deployment inside the build image so Node/Hexo/Python are already available.
-  #   container:
-  #     image: ${{ needs.docker.outputs.build_image_ref }}
-  #     credentials:
-  #       username: ${{ secrets.GHCR_USERNAME || github.actor }}
-  #       password: ${{ secrets.GHCR_TOKEN || github.token }}
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v4
-
-  #     - name: Deploy
-  #       env:
-  #         # Use a PAT that can push to the Pages repo (e.g. Estom/Estom.github.io)
-  #         # Fine-grained PAT: Contents: Read & Write on the target repo
-  #         PAGES_REPO_TOKEN: ${{ secrets.PAGES_REPO_TOKEN }}
-  #         # Optional overrides
-  #         PAGES_REPO: ${{ secrets.PAGES_REPO || 'Estom/Estom.github.io' }}
-  #         PAGES_BRANCH: ${{ secrets.PAGES_BRANCH || 'main' }}
-  #       run: |
-  #         cd /app
-  #         chmod +x ./deploy.sh
-  #         ./deploy.sh
-  
