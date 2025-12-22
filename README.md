@@ -2,7 +2,7 @@
 
 这是一个基于 Hexo 的个人博客站点源码，主题使用 `butterfly`（来自 `hexo-theme-butterfly`），并额外提供一套 **Python 处理流水线**：从 `notes/` 仓库同步 Markdown 和图片、自动补齐 front-matter、提取标签、修正图片路径、生成封面，并最终由 Hexo 产出 `public/` 静态站点。
 
-本 README 以“能跑起来”为第一原则：所有命令与参数均来自仓库实际脚本实现。
+本 README 以"能跑起来"为第一原则：所有命令与参数均来自仓库实际脚本实现。
 
 ## 目录与职责
 
@@ -33,6 +33,7 @@
 ### 1. 一键构建
 
 ```bash
+export REPO_URL=${your_repo_url}
 ./build.sh
 ```
 
@@ -54,10 +55,10 @@ npm run server
 
 [build.sh](build.sh) 内部会运行：
 
-1) 确保 `notes/` 存在且尽量保持最新（git clone / git pull）
-2) `uv sync`
-3) `uv run hexo-sync ...`
-4) `npm install && npm run clean && npm run build`
+1. 通过`git clone / git pull` 同步笔记到本地，存储到 `notes/` 中，保持最新
+2. `uv sync` 安装数据处理的依赖
+3. `uv run hexo-sync` 进行数据处理，将笔记同步到hexo的数据目录中`/source/_posts/`
+4. `npm install && npm run clean && npm run build` 通过hexo生成静态站点。
 
 你也可以手动运行：
 
@@ -72,23 +73,43 @@ uv run hexo-sync
 uv run hexo-sync --help
 ```
 
+#### hexo-sync 参数详解
+
+`hexo-sync` 的最小参数配置：
+- 无需任何参数即可运行，默认会从 `notes/` 目录同步符合条件的 Markdown 和图片文件
+
+`hexo-sync` 的可用参数：
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--repo-root` | 当前目录 | 指定仓库根目录 |
+| `--notes` | `{repo_root}/notes` | 指定 notes 目录路径 |
+| `--target` | `source/_posts` | 指定 Markdown 文件的目标目录 |
+| `--image-target` | `source/note_image` | 指定图片文件的目标目录 |
+| `--ignore` | `{repo_root}/.bgignore` | 指定忽略规则文件 |
+| `--min-md` | `2` | 目录子树 Markdown 数量阈值 |
+| `--dry-run` | false | 只显示将要复制的文件，不实际执行 |
+| `--delete` | false | 同步前删除目标目录中的已有文件 |
+| `--no-post-process` | false | 不执行后处理步骤 |
+| `--verbose` | false | 显示详细处理过程 |
+
 #### hexo-sync 行为说明
 
 `hexo-sync` 的默认行为（见 [processor/sync.py](processor/sync.py)）：
 
 - 扫描 `notes/` 下所有 Markdown 与图片文件
 - 应用忽略规则文件（默认 [ .bgignore ](.bgignore)）
-- 将满足“目录子树 Markdown 数量阈值”的 Markdown 复制到 `source/_posts/`（默认阈值：2）
+- 将满足"目录子树 Markdown 数量阈值"的 Markdown 复制到 `source/_posts/`（默认阈值：2）
 - 将所有图片复制到 `source/note_image/`（不受阈值影响，以免相对引用断掉）
 - 同步完成后，默认会执行后处理：调用 `processor.process_posts` 扫描 `source/_posts/`，统一生成 front-matter、标签、封面、时间戳等
 
-常用参数：
+常用参数组合：
 
 ```bash
 # 只看会复制哪些文件（不落盘）
 uv run hexo-sync --dry-run
 
-# 同步前清空既有文章/图片（适合做一次“全量重建”）
+# 同步前清空既有文章/图片（适合做一次"全量重建"）
 uv run hexo-sync --delete
 
 # 修改目录子树阈值（默认 2）
@@ -121,23 +142,46 @@ uv sync
 uv run hexo-process-posts --target source/_posts
 ```
 
-常用参数（见 [processor/process_posts.py](processor/process_posts.py)）：
+#### hexo-process-posts 参数详解
+
+`hexo-process-posts` 的最小参数配置：
+- `--target`：必须指定要处理的文章目录（通常是 `source/_posts`）
+
+`hexo-process-posts` 的可用参数：
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--target` | 无（必填） | 指定要处理的文章目录 |
+| `--notes` | `{target}/../notes` | 指定 notes 目录路径 |
+| `--tag-count` | `5` | 每篇文章提取的标签数量 |
+| `--tag-budget` | `100` | 全局唯一标签总量上限 |
+| `--image-root` | `/note_image` | 图片 URL 根路径 |
+| `--cover-dir` | `source/images/cover` | 封面图片目录 |
+| `--cover-count` | `1` | 每篇文章使用的封面图片数量 |
+| `--raw-wrap` | `auto` | 遇到模板语法时用 Nunjucks raw 包裹正文（auto/always/never） |
+| `--escape-curly` | `true` | 是否转义 {{ }} |
+| `--git-date` | `author` | 时间戳读取使用 author/committer |
+| `--git-batch` | `false` | 是否批量读取 git 时间戳 |
+| `--force-regen` | `false` | 强制重新生成 front-matter |
+| `--verbose` | `false` | 显示详细处理过程 |
+
+常用参数组合（见 [processor/process_posts.py](processor/process_posts.py)）：
 
 ```bash
 # 每篇文章提取 3 个标签；全局唯一标签总量最多 100
-uv run hexo-process-posts --tag-count 3 --tag-budget 100
+uv run hexo-process-posts --target source/_posts --tag-count 3 --tag-budget 100
 
 # 图片 URL 根路径（默认 /note_image）
-uv run hexo-process-posts --image-root /note_image
+uv run hexo-process-posts --target source/_posts --image-root /note_image
 
 # 遇到模板语法时用 Nunjucks raw 包裹正文：auto/always/never
-uv run hexo-process-posts --raw-wrap auto
+uv run hexo-process-posts --target source/_posts --raw-wrap auto
 
 # 转义 {{ }}（默认 true）
-uv run hexo-process-posts --escape-curly true
+uv run hexo-process-posts --target source/_posts --escape-curly true
 
 # 时间戳读取使用 author/committer（默认 author）
-uv run hexo-process-posts --git-date author
+uv run hexo-process-posts --target source/_posts --git-date author
 ```
 
 重要说明：
@@ -145,6 +189,44 @@ uv run hexo-process-posts --git-date author
 - `hexo-process-posts` **要求** `notes/` 是一个 git 仓库（需要 `notes/.git`），否则会报错。
 - 参数 `--git-batch` 的代码默认值是 `false`。
 
+### hexo-rename-covers 批量重命名封面素材
+
+用于规范化封面图片名称，便于后续处理使用。
+
+#### hexo-rename-covers 参数详解
+
+`hexo-rename-covers` 的最小参数配置：
+- 无需任何参数即可运行，默认会处理 `source/images/cover` 目录下的图片
+
+`hexo-rename-covers` 的可用参数：
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--dir` | `source/images/cover` | 封面图片所在目录 |
+| `--start` | `1` | 封面编号起始值 |
+| `--ext` | `.jpg` | 统一文件扩展名 |
+| `--dry-run` | false | 只显示将要重命名的文件，不实际执行 |
+| `--overwrite` | false | 允许覆盖已存在的同名文件 |
+| `--verbose` | false | 显示详细处理过程 |
+
+常见用法：
+
+```bash
+# 重命名 source/images/cover 目录下的图片为 cover-1.jpg, cover-2.jpg...
+uv run hexo-rename-covers
+
+# 指定其他目录
+uv run hexo-rename-covers --dir path/to/covers
+
+# 从编号10开始
+uv run hexo-rename-covers --start 10
+
+# 使用.png扩展名
+uv run hexo-rename-covers --ext .png
+
+# 只查看将要执行的操作而不实际重命名
+uv run hexo-rename-covers --dry-run
+```
 
 ## Docker
 构建镜像 + 运行
@@ -195,25 +277,25 @@ GitHub Actions：构建镜像 + 发布 Pages
 
 ## 常见问题（排错）
 
-### 1) hexo-sync 同步了图片但文章里的相对图片路径不显示
+### 1 hexo-sync 同步了图片但文章里的相对图片路径不显示
 
 后处理会把相对图片路径重写到 `--image-root`（默认 `/note_image`）下，并保持目录结构。确认：
 
 - 图片确实被复制到了 `source/note_image/...`
 - Hexo 生成后 `public/note_image/...` 存在
 
-### 2) 报错：notes 仓库不存在或不是 git 仓库
+### 2 报错：notes 仓库不存在或不是 git 仓库
 
 这是 `hexo-process-posts` 的硬性要求（需要 git 历史生成时间戳）。解决方式：
 
 - 让 `notes/` 保持为 git 仓库（推荐用 [build.sh](build.sh) 自动 clone/pull）
 - 或者跳过后处理：`uv run hexo-sync --no-post-process`
 
-### 3) CI 部署报错：Missing token
+### 3 CI 部署报错：Missing token
 
 说明 `PAGES_REPO_TOKEN` 未配置或无权限。需要一个对目标 Pages 仓库有 `Contents: Read & Write` 权限的 PAT。
 
-### 4) 搜索框存在但搜不到
+### 4 搜索框存在但搜不到
 
 当前主题配置已启用本地搜索（见 [_config.butterfly.yml](./_config.butterfly.yml) 的 `search.use: local_search`）。如果仍然不生效，请确认：
 
@@ -224,7 +306,3 @@ GitHub Actions：构建镜像 + 发布 Pages
 ## 安全提示
 
 仓库里包含 `notes/` 的内容（可能来自外部同步）。在提交/公开仓库前，务必检查是否意外包含敏感信息（例如凭据、密码、token 等）。
-
----
-
-如果你希望我再补一版“面向作者写作”的说明（比如 notes 仓库目录组织规范、哪些目录会被同步、图片引用的最佳写法），告诉我你期望的 notes 目录规则，我可以按你现有笔记结构把约定写成更明确的规范。

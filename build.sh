@@ -2,11 +2,9 @@
 # 在build阶段完成数据的处理，生成可部署的产物
 set -euo pipefail
 
-REPO_URL="https://gitee.com/Eyestorm/notes.git"
+REPO_URL="${REPO_URL:-https://gitee.com/Eyestorm/notes.git}"
 NOTES_DIR="notes"
 BRANCH="master"
-
-SKIP_NOTES_GIT="${SKIP_NOTES_GIT:-0}"
 
 if [[ ! -d "$NOTES_DIR" ]]; then
 	echo "[notes] $NOTES_DIR not found, cloning from $REPO_URL ..."

@@ -130,8 +130,13 @@ jobs:
     # Run deployment inside the build image so Node/Hexo/Python are already available.
     container:
       image: ${{ needs.docker.outputs.build_image_ref }}
-
+      credentials:
+        username: ${{ secrets.GHCR_USERNAME || github.actor }}
+        password: ${{ secrets.GHCR_TOKEN || github.token }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Deploy
         env:
           # Use a PAT that can push to the Pages repo (e.g. Estom/Estom.github.io)
