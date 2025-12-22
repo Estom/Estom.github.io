@@ -5,11 +5,17 @@
 #   - Python 3.12
 #   - uv
 #
-ARG BASE_IMAGE=ghcr.io/estom/hexo-blog:build-v1.0.0
-
-# Source stage: consume the prebuilt build image which already contains
-# the generated static site in /app/public.
+# The base image reference is configurable so CI can point it at the
+# same registry/repository it pushes to.
+ARG BASE_IMAGE=ghcr.io/estom/hexo-blog:base-v1.0.0
 FROM ${BASE_IMAGE} AS build
+
+WORKDIR /app
+
+COPY . .
+
+RUN bash ./build.sh
+
 
 FROM nginx:1.27-alpine AS runtime
 

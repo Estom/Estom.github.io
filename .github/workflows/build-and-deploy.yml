@@ -17,6 +17,14 @@ jobs:
     name: Build & Push Image
     runs-on: ubuntu-latest
 
+    outputs:
+      image: ${{ steps.vars.outputs.image }}
+      version: ${{ steps.vars.outputs.version }}
+      iteration: ${{ steps.vars.outputs.iteration }}
+      base_image_ref: ${{ steps.vars.outputs.base_image_ref }}
+      build_image_ref: ${{ steps.vars.outputs.build_image_ref }}
+      run_image_ref: ${{ steps.vars.outputs.run_image_ref }}
+
     env:
       REGISTRY: ${{ secrets.REGISTRY || 'ghcr.io' }}
       IMAGE_NAME: ${{ secrets.IMAGE_NAME || github.repository }}
@@ -34,9 +42,26 @@ jobs:
           image_name="${IMAGE_NAME}"
           # GHCR requires lowercase image names
           image_name_lc="${image_name,,}"
+
+          # Version source: `vsersion` (repo file). Fallback keeps workflow usable.
+          if [[ -f vsersion ]]; then
+            version="$(tr -d '\r\n' < vsersion)"
+          else
+            version="v0.0.0"
+          fi
+          iteration="${GITHUB_RUN_NUMBER}"
+
           echo "image=${registry}/${image_name_lc}" >> "$GITHUB_OUTPUT"
-          echo "sha_tag=sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-          echo "ref_tag=ref-${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "iteration=${iteration}" >> "$GITHUB_OUTPUT"
+
+          echo "base_tag=base-${version}-${iteration}" >> "$GITHUB_OUTPUT"
+          echo "build_tag=build-${version}-${iteration}" >> "$GITHUB_OUTPUT"
+          echo "run_tag=run-${version}-${iteration}" >> "$GITHUB_OUTPUT"
+
+          echo "base_image_ref=${registry}/${image_name_lc}:base-${version}-${iteration}" >> "$GITHUB_OUTPUT"
+          echo "build_image_ref=${registry}/${image_name_lc}:build-${version}-${iteration}" >> "$GITHUB_OUTPUT"
+          echo "run_image_ref=${registry}/${image_name_lc}:run-${version}-${iteration}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -60,42 +85,40 @@ jobs:
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
-      - name: Build base image (required by Dockerfile)
+      - name: Build & push base image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile-base
           push: true
           tags: |
-            ${{ steps.vars.outputs.image }}:base-node22-py312
+            ${{ steps.vars.outputs.base_image_ref }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build & push site image
+      - name: Build & push build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile-build
+          push: true
+          build-args: |
+            BASE_IMAGE=${{ steps.vars.outputs.base_image_ref }}
+          tags: |
+            ${{ steps.vars.outputs.build_image_ref }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push run image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           push: true
           build-args: |
-            BASE_IMAGE=${{ steps.vars.outputs.image }}:base-node22-py312
+            BASE_IMAGE=${{ steps.vars.outputs.build_image_ref }}
           tags: |
-            ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.sha_tag }}
-            ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.ref_tag }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Tag latest on default branch
-        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile
-          push: true
-          build-args: |
-            BASE_IMAGE=${{ steps.vars.outputs.image }}:base-node22-py312
-          tags: |
-            ${{ steps.vars.outputs.image }}:latest
+            ${{ steps.vars.outputs.run_image_ref }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -104,16 +127,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: docker
 
+    # Run deployment inside the build image so Node/Hexo/Python are already available.
+    container:
+      image: ${{ needs.docker.outputs.build_image_ref }}
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
       - name: Deploy
         env:
           # Use a PAT that can push to the Pages repo (e.g. Estom/Estom.github.io)
@@ -123,5 +141,6 @@ jobs:
           PAGES_REPO: ${{ secrets.PAGES_REPO || 'Estom/Estom.github.io' }}
           PAGES_BRANCH: ${{ secrets.PAGES_BRANCH || 'main' }}
         run: |
+          cd /app
           chmod +x ./deploy.sh
           ./deploy.sh

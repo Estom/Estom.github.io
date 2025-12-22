@@ -9,6 +9,13 @@ if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
 	PAGES_BRANCH="${PAGES_BRANCH:-main}"
 	DEPLOY_TOKEN="${PAGES_REPO_TOKEN:-${GITHUB_TOKEN:-}}"
 
+	# hexo-deployer-git initializes a temporary git repo under .deploy_git.
+	# GitHub Actions runners don't have user identity configured by default,
+	# which causes `Author identity unknown` and deploy failure.
+	git config --global advice.defaultBranchName false
+	git config --global user.name "${GIT_USER_NAME:-github-actions[bot]}"
+	git config --global user.email "${GIT_USER_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}"
+
 	if [[ -z "${DEPLOY_TOKEN}" ]]; then
 		echo "[deploy] Missing token. Set secret PAGES_REPO_TOKEN (recommended) or provide GITHUB_TOKEN (only works if deploying to the same repo)." >&2
 		exit 1
