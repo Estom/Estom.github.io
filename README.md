@@ -2,7 +2,6 @@
 
 这是一个基于 Hexo 的个人博客站点源码，主题使用 `butterfly`（来自 `hexo-theme-butterfly`），并额外提供一套 **Python 处理流水线**：从 `notes/` 仓库同步 Markdown 和图片、自动补齐 front-matter、提取标签、修正图片路径、生成封面，并最终由 Hexo 产出 `public/` 静态站点。
 
-本 README 以"能跑起来"为第一原则：所有命令与参数均来自仓库实际脚本实现。
 
 ## 目录与职责
 
@@ -21,7 +20,7 @@
 ## 环境要求
 
 主要的工作流程：从 notes 同步数据 -> Python 后处理 -> Hexo 构建。依赖如下环境：
-- Node.js + npm
+- Node.js >= 22.x
 - Python >= 3.10
 - `uv`（用于安装/运行 `processor/`）
 - git（用于拉取 notes、读取 git 历史生成时间戳）
@@ -32,12 +31,12 @@
 
 ### 1. 一键构建
 
+拉取 notes → 同步/后处理 → Hexo generate
+
 ```bash
 export REPO_URL=${your_repo_url}
 ./build.sh
 ```
-
-拉取 notes → 同步/后处理 → Hexo generate
 
 构建完成后，静态站点位于 `public/`。
 
@@ -189,51 +188,12 @@ uv run hexo-process-posts --target source/_posts --git-date author
 - `hexo-process-posts` **要求** `notes/` 是一个 git 仓库（需要 `notes/.git`），否则会报错。
 - 参数 `--git-batch` 的代码默认值是 `false`。
 
-### hexo-rename-covers 批量重命名封面素材
-
-用于规范化封面图片名称，便于后续处理使用。
-
-#### hexo-rename-covers 参数详解
-
-`hexo-rename-covers` 的最小参数配置：
-- 无需任何参数即可运行，默认会处理 `source/images/cover` 目录下的图片
-
-`hexo-rename-covers` 的可用参数：
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `--dir` | `source/images/cover` | 封面图片所在目录 |
-| `--start` | `1` | 封面编号起始值 |
-| `--ext` | `.jpg` | 统一文件扩展名 |
-| `--dry-run` | false | 只显示将要重命名的文件，不实际执行 |
-| `--overwrite` | false | 允许覆盖已存在的同名文件 |
-| `--verbose` | false | 显示详细处理过程 |
-
-常见用法：
-
-```bash
-# 重命名 source/images/cover 目录下的图片为 cover-1.jpg, cover-2.jpg...
-uv run hexo-rename-covers
-
-# 指定其他目录
-uv run hexo-rename-covers --dir path/to/covers
-
-# 从编号10开始
-uv run hexo-rename-covers --start 10
-
-# 使用.png扩展名
-uv run hexo-rename-covers --ext .png
-
-# 只查看将要执行的操作而不实际重命名
-uv run hexo-rename-covers --dry-run
-```
-
 ## Docker
 构建镜像 + 运行
 
 本仓库的 Docker 分为三层：
 
-- [Dockerfile-base](Dockerfile-base)：基础镜像（Ubuntu 24.04 + Node.js 22 + Python 3 + uv，含国内镜像源配置）
+- [Dockerfile-base](Dockerfile-base)：基础镜像（Ubuntu 24.04 + Node.js 22 + Python 3 + uv，含国内镜像源配置）,搭建基础的构建环境。
 - [Dockerfile-build](Dockerfile-build)：构建镜像（复制仓库并执行 `./build.sh`，产出 `/app/public`）
 - [Dockerfile](Dockerfile)：运行镜像（nginx，拷贝 `/app/public` 并以 [start.sh](start.sh) 启动）
 
@@ -269,11 +229,10 @@ GitHub Actions：构建镜像 + 发布 Pages
 - 本地：直接 `npm run deploy`（走 `_config.yml` 里的 SSH repo 配置）
 - GitHub Actions：生成 `_config.ci.deploy.yml`，使用 HTTPS + token 推送，避免依赖 SSH key
 
-可用环境变量（CI 下）：
+必须配置一下环境变量流水线才能正常执行
 
-- `PAGES_REPO_TOKEN`：必填（推荐使用 GitHub Secret）
-- `PAGES_REPO`：默认 `Estom/Estom.github.io`
-- `PAGES_BRANCH`：默认 `main`
+- `REGISTRY_PASSWORD`：ghcr镜像仓库的token
+- `REGISTRY_USERNAME`：ghcr镜像仓库的用户名
 
 ## 常见问题（排错）
 
@@ -291,11 +250,7 @@ GitHub Actions：构建镜像 + 发布 Pages
 - 让 `notes/` 保持为 git 仓库（推荐用 [build.sh](build.sh) 自动 clone/pull）
 - 或者跳过后处理：`uv run hexo-sync --no-post-process`
 
-### 3 CI 部署报错：Missing token
-
-说明 `PAGES_REPO_TOKEN` 未配置或无权限。需要一个对目标 Pages 仓库有 `Contents: Read & Write` 权限的 PAT。
-
-### 4 搜索框存在但搜不到
+### 3 搜索框存在但搜不到
 
 当前主题配置已启用本地搜索（见 [_config.butterfly.yml](./_config.butterfly.yml) 的 `search.use: local_search`）。如果仍然不生效，请确认：
 
