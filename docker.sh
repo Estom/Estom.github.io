@@ -14,3 +14,7 @@ docker run -d --name notes -p 80:80 ghcr.io/estom/hexo-blog:run-v1.0.0
 
 # 本地部署到github pages的主页。依赖本地的账号权限，和_config.yml中deploy的配置
 # hexo deploy
+
+
+# 更新子模块，会触发子模块的下载
+# git submodule update --recursive
