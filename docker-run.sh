@@ -1,1 +1,0 @@
-docker run -d --name notes -p 80:80 notes

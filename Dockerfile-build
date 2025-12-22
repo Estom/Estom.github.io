@@ -15,16 +15,3 @@ WORKDIR /app
 COPY . .
 
 RUN bash ./build.sh
-
-
-FROM nginx:1.27-alpine AS runtime
-
-# Static site output from Hexo
-COPY --from=build /app/public/ /usr/share/nginx/html/
-
-# Required by user request: runtime starts via start.sh
-COPY --from=build /app/start.sh /start.sh
-RUN chmod +x /start.sh
-
-EXPOSE 80
-CMD ["/start.sh"]

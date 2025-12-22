@@ -23,9 +23,11 @@ else
 	fi
 fi
 
+# 数据处理
 uv sync
 uv run hexo-sync "$@"
 
+# 生成静态文件
 npm install
 npm run clean
 npm run build
