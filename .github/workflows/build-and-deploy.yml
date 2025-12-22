@@ -161,7 +161,7 @@ jobs:
           set -euo pipefail
           mkdir -p _site
 
-          image_ref='${{ needs.docker.outputs.build_image_ref }}'
+          image_ref="${{ needs.docker.outputs.build_image_ref }}"
 
           docker pull "$image_ref"
 
