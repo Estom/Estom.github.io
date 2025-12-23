@@ -159,7 +159,6 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - docker
-      - pages_deploy
 
     steps:
       - name: Download Pages artifact
@@ -167,6 +166,27 @@ jobs:
         with:
           name: github-pages
           path: _site
+
+      - name: Extract Pages artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # `actions/upload-pages-artifact` produces an artifact that contains a tarball
+          # (commonly `_site/artifact.tar`). Cloudflare Pages needs the extracted files.
+          if [[ -f "_site/artifact.tar" ]]; then
+            tar -xf "_site/artifact.tar" -C _site
+            rm -f "_site/artifact.tar"
+          else
+            shopt -s nullglob
+            archives=( _site/*.tar _site/*.tar.gz _site/*.tgz )
+            if (( ${#archives[@]} > 0 )); then
+              for a in "${archives[@]}"; do
+                tar -xf "$a" -C _site
+                rm -f "$a"
+              done
+            fi
+          fi
 
       - name: Deploy
         uses: cloudflare/pages-action@v1

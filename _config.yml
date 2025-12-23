@@ -112,6 +112,6 @@ deploy:
 search:
   path: search.xml
   field: post
-  content: true           # 同时索引正文，false 仅标题+摘要
+  content: false           # 同时索引正文，false 仅标题+摘要
   format: html
   limit: 10000
