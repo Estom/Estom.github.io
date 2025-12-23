@@ -3,7 +3,7 @@ name: Build Docker image and Deploy Pages
 on:
   push:
     branches:
-      - master
+      - main
   workflow_dispatch:
 
 permissions:
@@ -195,5 +195,5 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           projectName: ${{ secrets.CLOUDFLARE_PAGES_PROJECT_NAME }}
           directory: _site
-          branch: master
+          branch: main
   
