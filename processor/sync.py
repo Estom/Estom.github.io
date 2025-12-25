@@ -50,7 +50,6 @@ class SyncConfig:
 	dry_run: bool
 	verbose: bool
 	delete_before_sync: bool
-	post_process: bool
 
 
 def _is_markdown(path: Path) -> bool:
@@ -322,16 +321,6 @@ def _sync(cfg: SyncConfig) -> int:
 
 	print(f"done: copied_md={copied}, skipped_md={skipped}, copied_img={copied_images}, target={cfg.target_dir}")
 
-	# Post-process all markdown under target_dir.
-	if cfg.post_process and not cfg.dry_run:
-		# Invoke as module so it works both in-repo and when installed as a package.
-		cmd = [sys.executable, '-m', 'processor.process_posts', '--target', str(cfg.target_dir)]
-		if cfg.verbose:
-			cmd.append('--verbose')
-		try:
-			subprocess.run(cmd, check=True)
-		except subprocess.CalledProcessError as e:
-			raise RuntimeError(f"内容处理脚本执行失败（exit={e.returncode}）：{' '.join(cmd)}")
 
 	return 0
 
@@ -368,7 +357,6 @@ def main(argv: Optional[List[str]] = None) -> int:
 	parser.add_argument('--ignore-file', default='.bgignore', help='忽略规则文件（默认：.bgignore）')
 	parser.add_argument('--min-md', type=int, default=2, help='目录子树内最少 Markdown 数（默认：2）')
 	parser.add_argument('--delete', action='store_true', help='同步前清空目标目录下所有 Markdown 文档，然后重新生成')
-	parser.add_argument('--no-post-process', action='store_true', help='不同步后处理（默认会扫描 target 下所有 Markdown 生成统一 front-matter）')
 	parser.add_argument('--dry-run', action='store_true', help='只打印将要复制的文件，不实际写入')
 	parser.add_argument('-v', '--verbose', action='store_true', help='输出更多日志')
 
@@ -394,7 +382,6 @@ def main(argv: Optional[List[str]] = None) -> int:
 		dry_run=bool(args.dry_run),
 		verbose=bool(args.verbose),
 		delete_before_sync=bool(args.delete),
-		post_process=not bool(args.no_post_process),
 	)
 
 	try:

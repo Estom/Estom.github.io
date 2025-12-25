@@ -8,18 +8,37 @@ import posixpath
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Protocol, Set, Tuple
 
 
 _TAG_STOPWORDS = {
 	'note_image', 'images', 'image', 'img', 'http', 'https', 'www',
 	'true', 'false', 'null', 'none',
 }
+
+
+class TagExtractor(Protocol):
+	"""Pluggable tag extractor.
+
+	Implementations should return {rel_path_posix -> [tag, ...]}.
+	"""
+
+	name: str
+
+	def build_index(
+		self,
+		files: List[Path],
+		target_root: Path,
+		tag_count: int,
+		max_unique_tags: int,
+		verbose: bool,
+	) -> Dict[str, List[str]]: ...
 
 
 def _clean_text_for_tags(text: str) -> str:
@@ -35,7 +54,7 @@ def _clean_text_for_tags(text: str) -> str:
 	return clean
 
 
-def _jieba_tokenize(text: str) -> List[str]:
+def _jieba_tokenize(text: str, *, dedupe: bool = True) -> List[str]:
 	try:
 		import jieba
 	except Exception as exc:  # pragma: no cover
@@ -55,7 +74,7 @@ def _jieba_tokenize(text: str) -> List[str]:
 		lw = w.lower()
 		if lw in _TAG_STOPWORDS:
 			continue
-		if lw in seen:
+		if dedupe and lw in seen:
 			continue
 		# skip very short tokens
 		if len(w) < 2:
@@ -66,7 +85,8 @@ def _jieba_tokenize(text: str) -> List[str]:
 		# skip path-like tokens
 		if '/' in w or '\\' in w:
 			continue
-		seen.add(lw)
+		if dedupe:
+			seen.add(lw)
 		result.append(w)
 	return result
 
@@ -85,6 +105,8 @@ def _build_tfidf_tag_index(
 	if tag_count <= 0 or not files:
 		return {}
 
+	print(f"[tags] building index for {len(files)} files...")
+ 
 	try:
 		from sklearn.feature_extraction.text import TfidfVectorizer
 	except Exception as exc:  # pragma: no cover
@@ -102,7 +124,7 @@ def _build_tfidf_tag_index(
 		rel_paths.append(rel)
 		raw = _read_text_best_effort(p)
 		body = _strip_front_matter_if_any(raw)
-		tokens = _jieba_tokenize(body)
+		tokens = _jieba_tokenize(body, dedupe=True)
 		corpus.append(' '.join(tokens))
 
 	vectorizer = TfidfVectorizer(
@@ -146,6 +168,268 @@ def _build_tfidf_tag_index(
 	if verbose:
 		print(f"[tags] unique={len(used_global)}/{max_unique_tags}")
 	return tags_by_path
+
+
+def _build_textrank_tag_index(
+	files: List[Path],
+	target_root: Path,
+	tag_count: int,
+	max_unique_tags: int,
+	verbose: bool,
+) -> Dict[str, List[str]]:
+	"""Compute tags per file using jieba + textrank4zh TextRank keywords."""
+	if tag_count <= 0 or not files:
+		return {}
+
+	try:
+		from textrank4zh import TextRank4Keyword
+	except Exception as exc:  # pragma: no cover
+		raise RuntimeError(
+			"缺少 Python 依赖 textrank4zh，无法使用 TextRank 提取关键词。\n"
+			"请在仓库根目录执行：pip install -r requirements.txt\n"
+			"或：pip install textrank4zh"
+		) from exc
+
+	print(f"[tags] building TextRank index for {len(files)} files...")
+
+	used_global: Set[str] = set()
+	tags_by_path: Dict[str, List[str]] = {}
+
+	for p in files:
+		rel = p.relative_to(target_root).as_posix()
+		raw = _read_text_best_effort(p)
+		body = _strip_front_matter_if_any(raw)
+		# KeyBERT 对中文混合文本若直接喂原文，容易抽出“短语/片段”。
+		# 这里先用 jieba 分词，再用空格拼回去，让 KeyBERT 在“词粒度”上做 (1,1) 抽取。
+		# 注意：不去重以保留词频，帮助相关性排序。
+		clean = _clean_text_for_tags(body)
+		tokens = _jieba_tokenize(clean, dedupe=False)
+		if not tokens:
+			tags_by_path[rel] = []
+			continue
+		doc = ' '.join(tokens)
+
+		tr = TextRank4Keyword()
+		# textrank4zh uses jieba internally
+		try:
+			tr.analyze(text=clean, lower=True, window=2)
+		except AttributeError as exc:
+			# textrank4zh 依赖旧版 networkx API（例如 from_numpy_matrix），
+			# 在 networkx 3.x 中已移除。
+			raise RuntimeError(
+				"textrank4zh 与当前 networkx 版本不兼容。\n"
+				"请安装 networkx<3（本项目已在 pyproject.toml 里 pin）。\n"
+				"建议执行：uv sync（或 uv pip install 'networkx<3'）"
+			) from exc
+		candidates = tr.get_keywords(num=max(30, tag_count * 10), word_min_len=2)
+
+		picked: List[str] = []
+		for item in candidates:
+			word = (getattr(item, 'word', None) or '').strip()
+			if not word:
+				continue
+			lw = word.lower()
+			if lw in _TAG_STOPWORDS:
+				continue
+			# Enforce global unique tag budget.
+			if lw not in used_global and len(used_global) >= max_unique_tags:
+				continue
+			if lw not in used_global:
+				used_global.add(lw)
+			picked.append(word)
+			if len(picked) >= tag_count:
+				break
+		tags_by_path[rel] = picked
+
+	if verbose:
+		print(f"[tags] unique={len(used_global)}/{max_unique_tags}")
+	return tags_by_path
+
+
+def _build_keybert_tag_index(
+	files: List[Path],
+	target_root: Path,
+	tag_count: int,
+	max_unique_tags: int,
+	verbose: bool,
+) -> Dict[str, List[str]]:
+	"""Compute tags per file using KeyBERT + sentence-transformers.
+
+	Notes:
+	- This usually downloads a transformer model on first run.
+	- We still enforce the global unique tag budget.
+	"""
+	if tag_count <= 0 or not files:
+		return {}
+
+	try:
+		from keybert import KeyBERT
+	except Exception as exc:  # pragma: no cover
+		raise RuntimeError(
+			"缺少 Python 依赖 keybert，无法使用 KeyBERT 提取关键词。\n"
+			"请在仓库根目录执行：uv sync\n"
+			"或：pip install keybert"
+		) from exc
+
+	try:
+		from sentence_transformers import SentenceTransformer
+	except Exception as exc:  # pragma: no cover
+		raise RuntimeError(
+			"缺少 Python 依赖 sentence-transformers，无法使用 KeyBERT（需要嵌入模型）。\n"
+			"请在仓库根目录执行：uv sync\n"
+			"或：pip install sentence-transformers"
+		) from exc
+
+	print(f"[tags] start building KeyBERT index for {len(files)} files...")
+
+	# A multilingual model works for Chinese and English mixed content.
+	# Keep it as an internal default to avoid expanding CLI surface.
+	model_name = 'paraphrase-multilingual-MiniLM-L12-v2'
+	try:
+		embed_model = SentenceTransformer(model_name)
+		kw_model = KeyBERT(model=embed_model)
+	except Exception as exc:  # pragma: no cover
+		raise RuntimeError(
+			"KeyBERT 初始化失败（可能是首次下载模型失败或网络受限）。\n"
+			f"模型：{model_name}\n"
+			"可重试或预先下载模型后再运行。"
+		) from exc
+
+	used_global: Set[str] = set()
+	tags_by_path: Dict[str, List[str]] = {}
+
+	for p in files:
+		rel = p.relative_to(target_root).as_posix()
+		raw = _read_text_best_effort(p)
+		body = _strip_front_matter_if_any(raw)
+		clean = _clean_text_for_tags(body)
+
+		# KeyBERT returns list[(keyword, score)]. Use keyphrase_ngram_range=(1,1)
+		# to align with the existing per-tag token behavior.
+		try:
+			candidates = kw_model.extract_keywords(
+				doc,
+				keyphrase_ngram_range=(1, 1),
+				top_n=max(30, tag_count * 10),
+				use_mmr=False,
+				diversity=0.0,
+			)
+		except Exception as exc:
+			raise RuntimeError(f"KeyBERT 提取关键词失败：{rel}") from exc
+
+		picked: List[str] = []
+		seen_local: Set[str] = set()
+		for kw, _score in candidates:
+			word = (kw or '').strip()
+			if not word:
+				continue
+			# 理论上 (1,1) 会返回单 token，但仍做兜底：过滤带空白的片段。
+			if any(ch.isspace() for ch in word):
+				continue
+			lw = word.lower()
+			if lw in _TAG_STOPWORDS:
+				continue
+			if lw in seen_local:
+				continue
+			# Skip very short tokens
+			if len(word) < 2:
+				continue
+			# Skip pure digits
+			if word.isdigit():
+				continue
+			# Skip path-like tokens
+			if '/' in word or '\\' in word:
+				continue
+
+			# Enforce global unique tag budget.
+			if lw not in used_global and len(used_global) >= max_unique_tags:
+				continue
+			if lw not in used_global:
+				used_global.add(lw)
+			seen_local.add(lw)
+			picked.append(word)
+			if len(picked) >= tag_count:
+				break
+
+		tags_by_path[rel] = picked
+
+	if verbose:
+		print(f"[tags] unique={len(used_global)}/{max_unique_tags}")
+	return tags_by_path
+
+
+class TfidfTagExtractor:
+	name = 'tfidf'
+
+	def build_index(
+		self,
+		files: List[Path],
+		target_root: Path,
+		tag_count: int,
+		max_unique_tags: int,
+		verbose: bool,
+	) -> Dict[str, List[str]]:
+		return _build_tfidf_tag_index(
+			files=files,
+			target_root=target_root,
+			tag_count=tag_count,
+			max_unique_tags=max_unique_tags,
+			verbose=verbose,
+		)
+
+
+class TextRankTagExtractor:
+	name = 'textrank'
+
+	def build_index(
+		self,
+		files: List[Path],
+		target_root: Path,
+		tag_count: int,
+		max_unique_tags: int,
+		verbose: bool,
+	) -> Dict[str, List[str]]:
+		return _build_textrank_tag_index(
+			files=files,
+			target_root=target_root,
+			tag_count=tag_count,
+			max_unique_tags=max_unique_tags,
+			verbose=verbose,
+		)
+
+
+class KeyBertTagExtractor:
+	name = 'keybert'
+
+	def build_index(
+		self,
+		files: List[Path],
+		target_root: Path,
+		tag_count: int,
+		max_unique_tags: int,
+		verbose: bool,
+	) -> Dict[str, List[str]]:
+		return _build_keybert_tag_index(
+			files=files,
+			target_root=target_root,
+			tag_count=tag_count,
+			max_unique_tags=max_unique_tags,
+			verbose=verbose,
+		)
+
+
+_TAG_EXTRACTORS: Dict[str, TagExtractor] = {
+	'tfidf': TfidfTagExtractor(),
+	'textrank': TextRankTagExtractor(),
+	'keybert': KeyBertTagExtractor(),
+}
+
+
+def _get_tag_extractor(method: str) -> Optional[TagExtractor]:
+	m = (method or 'tfidf').lower().strip()
+	if m in {'none', 'off', 'false', '0'}:
+		return None
+	return _TAG_EXTRACTORS.get(m)
 
 
 def _is_markdown(path: Path) -> bool:
@@ -465,26 +749,33 @@ def _build_git_time_index(repo_dir: Path, interest_paths: Set[str], date_kind: s
 	if not interest_paths:
 		return {}
 
+	if verbose:
+		print(f"[git] Building datetime index for {len(interest_paths)} paths")
 	date_kind_norm = (date_kind or 'author').lower()
 	fmt = '%at' if date_kind_norm == 'author' else '%ct'
 	marker = '__TS__'
+	# Only scan Markdown notes (recursive). This avoids walking unrelated files.
+	md_pathspec = ':(glob)**/*.md'
 	cmd = [
 		'git',
 		'-C', str(repo_dir),
 		'-c', 'core.quotepath=false',
+		'--no-pager',
 		'log',
 		'--name-status',
 		'--diff-filter=AMDR',
 		f'--format={marker}%{fmt[1:]}',
+		'--',
+		md_pathspec,
 	]
 
-	try:
-		p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-	except FileNotFoundError:
-		raise RuntimeError("未找到 git 命令，请先安装 git")
+	if verbose:
+		print(f"[git] Running git command: {' '.join(cmd)}")
 
-	assert p.stdout is not None
-	assert p.stderr is not None
+	# Avoid streaming huge stdout over pipes (can block/timeout over SSH). Dump
+	# stdout to a temp file first, then parse it line-by-line.
+	out_path: Optional[str] = None
+	cp: Optional[subprocess.CompletedProcess[str]] = None
 
 	# Map historical (older) names -> final (current) name we attribute times to.
 	back_alias: Dict[str, str] = {}
@@ -505,61 +796,75 @@ def _build_git_time_index(repo_dir: Path, interest_paths: Set[str], date_kind: s
 		return cur
 
 	try:
-		for line in p.stdout:
-			s = line.rstrip('\n')
-			if not s:
-				continue
-			if s.startswith(marker):
-				try:
-					current_ts = int(s[len(marker):].strip())
-				except ValueError:
-					current_ts = None
-				continue
-			if current_ts is None:
-				continue
+		with tempfile.NamedTemporaryFile(prefix='git-log-', suffix='.txt', delete=False, mode='w', encoding='utf-8') as fp:
+			out_path = fp.name
+			try:
+				cp = subprocess.run(
+					cmd,
+					check=False,
+					stdout=fp,
+					stderr=subprocess.PIPE,
+					text=True,
+				)
+			except FileNotFoundError:
+				raise RuntimeError("未找到 git 命令，请先安装 git")
 
-			parts = s.split('\t')
-			status = parts[0]
-			# Rename: Rxxx\told\tnew
-			if status.startswith('R') and len(parts) >= 3:
-				old_name = parts[1]
-				new_name = parts[2]
-				final = resolve_final(new_name)
-				if final in interest_paths:
-					# Ensure old history is attributed to the final name.
-					back_alias[old_name] = final
-					updated.setdefault(final, current_ts)
-					created[final] = current_ts
-				continue
+		if cp is None:
+			return {}
+		if cp.returncode != 0:
+			err = (cp.stderr or '').strip()
+			if verbose and err:
+				print(f"[git] stderr: {err}")
+			return {}
 
-			if len(parts) < 2:
-				continue
-			path = parts[1]
-			final = resolve_final(path)
-			if final not in interest_paths:
-				continue
+		if out_path is None:
+			return {}
+		with open(out_path, 'r', encoding='utf-8', errors='replace') as f:
+			for line in f:
+				s = line.rstrip('\n')
+				if not s:
+					continue
+				if s.startswith(marker):
+					try:
+						current_ts = int(s[len(marker):].strip())
+					except ValueError:
+						current_ts = None
+					continue
+				if current_ts is None:
+					continue
 
-			# First time we see it (from newest side) is the latest change.
-			updated.setdefault(final, current_ts)
-			# Keep overwriting as we go older; final value becomes the oldest seen.
-			created[final] = current_ts
-			if status == 'A':
-				done.add(final)
-				if len(done) == len(interest_paths):
-					break
+				parts = s.split('\t')
+				status = parts[0]
+				# Rename: Rxxx\told\tnew
+				if status.startswith('R') and len(parts) >= 3:
+					old_name = parts[1]
+					new_name = parts[2]
+					final = resolve_final(new_name)
+					if final in interest_paths:
+						back_alias[old_name] = final
+						updated.setdefault(final, current_ts)
+						created[final] = current_ts
+					continue
+
+				if len(parts) < 2:
+					continue
+				path = parts[1]
+				final = resolve_final(path)
+				if final not in interest_paths:
+					continue
+
+				updated.setdefault(final, current_ts)
+				created[final] = current_ts
+				if status == 'A':
+					done.add(final)
+					if len(done) == len(interest_paths):
+						break
 	finally:
-		# Terminate early if we broke out, otherwise wait for completion.
-		try:
-			p.terminate()
-		except Exception:
-			pass
-		p.wait(timeout=5)
-
-	# Swallow stderr unless verbose (still return what we have).
-	if verbose:
-		err = p.stderr.read().strip()
-		if err:
-			print(f"[git] stderr: {err}")
+		if out_path:
+			try:
+				Path(out_path).unlink(missing_ok=True)
+			except Exception:
+				pass
 
 	result: Dict[str, Tuple[int, int]] = {}
 	for k in interest_paths:
@@ -612,6 +917,7 @@ class ProcessConfig:
 	image_root_url: str
 	tag_count: int
 	tag_budget: int
+	tag_method: str
 	raw_wrap: str
 	escape_curly: bool
 	verbose: bool
@@ -699,17 +1005,19 @@ def process_directory(cfg: ProcessConfig) -> int:
 	files = [p for p in sorted(cfg.target_dir.rglob('*')) if p.is_file() and _is_markdown(p)]
 	total = len(files)
 
-	# Build global TF-IDF tag index once (IDF from full corpus).
+	# Build tag index once.
 	if cfg.tag_count > 0 and files:
-		cfg._tags_by_path.update(
-			_build_tfidf_tag_index(
-				files=files,
-				target_root=cfg.target_dir,
-				tag_count=int(cfg.tag_count),
-				max_unique_tags=int(cfg.tag_budget),
-				verbose=cfg.verbose,
+		extractor = _get_tag_extractor(cfg.tag_method)
+		if extractor is not None:
+			cfg._tags_by_path.update(
+				extractor.build_index(
+					files=files,
+					target_root=cfg.target_dir,
+					tag_count=int(cfg.tag_count),
+					max_unique_tags=int(cfg.tag_budget),
+					verbose=cfg.verbose,
+				)
 			)
-		)
 
 	# Build git time index once (huge speed-up vs per-file git calls).
 	if cfg.git_batch and files:
@@ -775,6 +1083,12 @@ def main(argv=None) -> int:
 	parser.add_argument('--image-root', default='/note_image', help='图片 URL 根路径（默认：/note_image）')
 	parser.add_argument('--tag-count', type=int, default=3, help='每篇文章提取标签数量（默认：3）')
 	parser.add_argument('--tag-budget', type=int, default=100, help='全局唯一标签总量上限（默认：100）')
+	parser.add_argument(
+		'--tag-method',
+		choices=['tfidf', 'textrank', 'keybert', 'none'],
+		default='tfidf',
+		help='标签提取方法：tfidf(默认) / textrank(jieba+textrank4zh) / keybert(sentence-transformers) / none(禁用)',
+	)
 	parser.add_argument('--raw-wrap', choices=['auto', 'always', 'never'], default='auto', help='遇到模板语法时用 Nunjucks raw 包裹正文（默认：auto）')
 	parser.add_argument('--escape-curly', choices=['true', 'false'], default='true', help='是否转义 {{ }} 以避免 Nunjucks 解析（默认：true）')
 	parser.add_argument('--git-date', choices=['author', 'committer'], default='author', help='使用 git 的 author 时间或 committer 时间（默认：author）')
@@ -804,6 +1118,7 @@ def main(argv=None) -> int:
 		image_root_url=str(args.image_root),
 		tag_count=int(args.tag_count),
 		tag_budget=int(args.tag_budget),
+		tag_method=str(args.tag_method),
 		raw_wrap=str(args.raw_wrap),
 		escape_curly=str(args.escape_curly).lower() == 'true',
 		verbose=bool(args.verbose),
