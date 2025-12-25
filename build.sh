@@ -24,7 +24,7 @@ fi
 # 数据处理
 uv sync
 uv run hexo-sync --verbose
-uv run hexo-proc --verbose --git-batch=false --tag-method=keybert --tag-count=3 --tag-budget=100
+uv run hexo-proc --verbose --git-batch=true --tag-method=textrank --tag-count=3 --tag-budget=100
 
 # 生成静态文件
 npm install
