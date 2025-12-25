@@ -189,8 +189,7 @@ def _build_textrank_tag_index(
 			"请在仓库根目录执行：pip install -r requirements.txt\n"
 			"或：pip install textrank4zh"
 		) from exc
-
-	print(f"[tags] building TextRank index for {len(files)} files...")
+	print(f"[tags] start building TextRank index for {len(files)} files...")
 
 	used_global: Set[str] = set()
 	tags_by_path: Dict[str, List[str]] = {}
@@ -242,7 +241,7 @@ def _build_textrank_tag_index(
 		tags_by_path[rel] = picked
 
 	if verbose:
-		print(f"[tags] unique={len(used_global)}/{max_unique_tags}")
+		print(f"[tags] end building TextRank index, unique={len(used_global)}/{max_unique_tags}")
 	return tags_by_path
 
 
@@ -778,22 +777,11 @@ def _build_git_time_index(repo_dir: Path, interest_paths: Set[str], date_kind: s
 	cp: Optional[subprocess.CompletedProcess[str]] = None
 
 	# Map historical (older) names -> final (current) name we attribute times to.
-	back_alias: Dict[str, str] = {}
+	back_trace: Dict[str, str] = {}
 	updated: Dict[str, int] = {}
 	created: Dict[str, int] = {}
 	done: Set[str] = set()
 	current_ts: Optional[int] = None
-
-	def resolve_final(name: str) -> str:
-		# Path compression for back_alias
-		chain = []
-		cur = name
-		while cur in back_alias:
-			chain.append(cur)
-			cur = back_alias[cur]
-		for n in chain:
-			back_alias[n] = cur
-		return cur
 
 	try:
 		with tempfile.NamedTemporaryFile(prefix='git-log-', suffix='.txt', delete=False, mode='w', encoding='utf-8') as fp:
@@ -821,6 +809,10 @@ def _build_git_time_index(repo_dir: Path, interest_paths: Set[str], date_kind: s
 			return {}
 		with open(out_path, 'r', encoding='utf-8', errors='replace') as f:
 			for line in f:
+				if verbose:
+					print(f"[git] proc line :{line}")
+				if line.startswith("R081"):
+					print("test")
 				s = line.rstrip('\n')
 				if not s:
 					continue
@@ -839,18 +831,27 @@ def _build_git_time_index(repo_dir: Path, interest_paths: Set[str], date_kind: s
 				if status.startswith('R') and len(parts) >= 3:
 					old_name = parts[1]
 					new_name = parts[2]
-					final = resolve_final(new_name)
-					if final in interest_paths:
-						back_alias[old_name] = final
-						updated.setdefault(final, current_ts)
-						created[final] = current_ts
+					# new_name感兴趣或者回溯找到感兴趣的path则记录
+					if new_name in interest_paths:
+						final = new_name
+					elif back_trace.get(new_name) and back_trace.get(new_name) in interest_paths:
+						final = back_trace.get(new_name)
+					else:
+						continue
+
+					back_trace[old_name] = final
+					updated.setdefault(final,current_ts)
+					created[final] = current_ts
 					continue
 
 				if len(parts) < 2:
 					continue
 				path = parts[1]
-				final = resolve_final(path)
-				if final not in interest_paths:
+				if path in interest_paths:
+					final = path
+				elif back_trace.get(path) and back_trace.get(path) in interest_paths:
+					final = back_trace.get(path)
+				else:
 					continue
 
 				updated.setdefault(final, current_ts)
