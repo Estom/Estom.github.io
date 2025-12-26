@@ -159,8 +159,8 @@ jobs:
           # cache-from: type=gha
           # cache-to: type=gha,mode=max,size=100m
           # 完全禁用缓存
-          cache-from: type=gha
-          cache-to: type=gha,mode=max,size=100m
+          cache-from: type=none
+          cache-to: type=none
 
       - name: Upload Pages content
         shell: bash
