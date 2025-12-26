@@ -26,7 +26,13 @@ uv sync
 uv run hexo-sync --verbose
 uv run hexo-proc --verbose --git-batch=true --tag-method=textrank --tag-count=3 --tag-budget=100
 
+# 删除中间文件
+rm -rf "$NOTES_DIR"
+rm -rf ".venv"
+
 # 生成静态文件
 npm install
 npm run clean
 npm run build
+
+rm -rf node_modules
