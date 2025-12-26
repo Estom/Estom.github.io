@@ -155,8 +155,12 @@ jobs:
             BASE_IMAGE=${{ steps.vars.outputs.base_image_ref }}
           tags: |
             ${{ steps.vars.outputs.run_image_ref }}
+          # 限制缓存大小为100MB（或直接注释禁用）
+          # cache-from: type=gha
+          # cache-to: type=gha,mode=max,size=100m
+          # 完全禁用缓存
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=max,size=100m
 
       - name: Upload Pages content
         shell: bash
