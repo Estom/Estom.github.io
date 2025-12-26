@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "uv: run hexo-proc with debugpy",
+      "type": "shell",
+      "command": "HF_ENDPOINT=https://hf-mirror.com uv run python -m debugpy --listen 5678 --wait-for-client -m hexo_proc --verbose --git-batch=true --tag-count=3 --tag-method=keybert",
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}

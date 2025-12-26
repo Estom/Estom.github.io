@@ -18,3 +18,4 @@ docker run -d --name notes -p 80:80 ghcr.io/estom/hexo-blog:run-v1.0.0
 
 # 更新子模块，会触发子模块的下载
 # git submodule update --recursive
+uv run hexo-proc --verbose --git-batch=true --tag-method=keybert --tag-count=3 --tag-budget=100

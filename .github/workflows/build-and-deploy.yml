@@ -31,6 +31,10 @@ jobs:
     env:
       REGISTRY: ${{ secrets.REGISTRY || 'ghcr.io' }}
       IMAGE_NAME: ${{ secrets.IMAGE_NAME || github.repository }}
+      # Config sources (priority): workflow_dispatch inputs -> repo variables.
+      # For push events, only repo variables (vars.*) apply.
+      SKIP_BASE_IMAGE: ${{ vars.SKIP_BASE_IMAGE || 'false' }}
+      FIXED_BASE_IMAGE_REF: ${{ vars.BASE_IMAGE_REF || '' }}
     
 
     steps:
@@ -44,8 +48,19 @@ jobs:
           set -euo pipefail
           registry="${REGISTRY}"
           image_name="${IMAGE_NAME}"
+          skip_base_image_raw="${SKIP_BASE_IMAGE}"
+          fixed_base_image_ref="${FIXED_BASE_IMAGE_REF}"
           # GHCR requires lowercase image names
           image_name_lc="${image_name,,}"
+
+          # Normalize boolean-ish values from env.
+          shopt -s nocasematch
+          if [[ "${skip_base_image_raw}" == "true" || "${skip_base_image_raw}" == "1" || "${skip_base_image_raw}" == "yes" ]]; then
+            skip_base_image="true"
+          else
+            skip_base_image="false"
+          fi
+          shopt -u nocasematch
 
           # Version source: `vsersion` (repo file). Fallback keeps workflow usable.
           if [[ -f vsersion ]]; then
@@ -58,12 +73,24 @@ jobs:
           echo "image=${registry}/${image_name_lc}" >> "$GITHUB_OUTPUT"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "iteration=${iteration}" >> "$GITHUB_OUTPUT"
+          echo "skip_base_image=${skip_base_image}" >> "$GITHUB_OUTPUT"
 
           echo "base_tag=base-${version}-${iteration}" >> "$GITHUB_OUTPUT"
           echo "build_tag=build-${version}-${iteration}" >> "$GITHUB_OUTPUT"
           echo "run_tag=run-${version}-${iteration}" >> "$GITHUB_OUTPUT"
 
-          echo "base_image_ref=${registry}/${image_name_lc}:base-${version}-${iteration}" >> "$GITHUB_OUTPUT"
+          computed_base_image_ref="${registry}/${image_name_lc}:base-${version}-${iteration}"
+          if [[ "${skip_base_image}" == "true" ]]; then
+            if [[ -z "${fixed_base_image_ref}" ]]; then
+              echo "ERROR: SKIP_BASE_IMAGE=true but FIXED_BASE_IMAGE_REF/base_image_ref is empty" >&2
+              exit 2
+            fi
+            base_image_ref="${fixed_base_image_ref}"
+          else
+            base_image_ref="${computed_base_image_ref}"
+          fi
+
+          echo "base_image_ref=${base_image_ref}" >> "$GITHUB_OUTPUT"
           echo "build_image_ref=${registry}/${image_name_lc}:build-${version}-${iteration}" >> "$GITHUB_OUTPUT"
           echo "run_image_ref=${registry}/${image_name_lc}:run-${version}-${iteration}" >> "$GITHUB_OUTPUT"
 
@@ -81,6 +108,7 @@ jobs:
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
       - name: Build & push base image
+        if: ${{ steps.vars.outputs.skip_base_image != 'true' }}
         uses: docker/build-push-action@v6
         with:
           context: .

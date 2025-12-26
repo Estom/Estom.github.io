@@ -41,6 +41,67 @@ class TagExtractor(Protocol):
 	) -> Dict[str, List[str]]: ...
 
 
+@dataclass
+class ProgressPrinter:
+	"""Print progress in both interactive (TTY) and non-interactive environments.
+
+	- TTY: renders a single-line progress bar updated in-place.
+	- Non-TTY (CI/server): prints on every 1% progress change.
+	"""
+
+	enabled: bool
+	prefix: str
+	width: int = 24
+	tty_stream = sys.stderr
+	_last_pct: int = -1
+	_is_tty: bool = False
+
+	def __post_init__(self) -> None:
+		if not self.enabled:
+			self._is_tty = False
+			return
+		self._is_tty = bool(getattr(self.tty_stream, "isatty", lambda: False)())
+
+	def _render_bar(self, done: int, total: int) -> str:
+		if total <= 0:
+			return "[" + ("-" * self.width) + "] 0/0"
+		frac = max(0.0, min(1.0, done / float(total)))
+		filled = int(round(frac * self.width))
+		bar = "#" * filled + "-" * (self.width - filled)
+		pct = int(frac * 100)
+		return f"[{bar}] {done}/{total} {pct:3d}%"
+
+	def update(self, done: int, total: int) -> None:
+		if not self.enabled:
+			return
+		if total < 0:
+			total = 0
+		if done < 0:
+			done = 0
+		if total > 0 and done > total:
+			done = total
+
+		if self._is_tty:
+			msg = f"\r{self.prefix} {self._render_bar(done, total)}"
+			self.tty_stream.write(msg)
+			self.tty_stream.flush()
+			return
+
+		pct = int((done / max(1, total)) * 100)
+		# Non-interactive: print every 1% change.
+		if pct != self._last_pct:
+			print(f"{self.prefix}: {pct}% ({done}/{total})")
+			self._last_pct = pct
+
+	def close(self, total: int) -> None:
+		if not self.enabled:
+			return
+		self.update(total, total)
+		if self._is_tty:
+			self.tty_stream.write("\n")
+			self.tty_stream.flush()
+
+
 def _clean_text_for_tags(text: str) -> str:
 	# Remove common non-content segments to reduce noisy tokens.
 	clean = text
@@ -117,15 +178,18 @@ def _build_tfidf_tag_index(
 		) from exc
 
 	# Build corpus: jieba tokens joined by spaces.
+	progress_corpus = ProgressPrinter(enabled=verbose, prefix='[tags tfidf] corpus')
 	rel_paths: List[str] = []
 	corpus: List[str] = []
-	for p in files:
+	for i, p in enumerate(files, start=1):
 		rel = p.relative_to(target_root).as_posix()
 		rel_paths.append(rel)
 		raw = _read_text_best_effort(p)
 		body = _strip_front_matter_if_any(raw)
 		tokens = _jieba_tokenize(body, dedupe=True)
 		corpus.append(' '.join(tokens))
+		progress_corpus.update(i, len(files))
+	progress_corpus.close(len(files))
 
 	vectorizer = TfidfVectorizer(
 		# We already tokenized; keep tokens as-is.
@@ -139,11 +203,13 @@ def _build_tfidf_tag_index(
 
 	used_global: Set[str] = set()
 	tags_by_path: Dict[str, List[str]] = {}
+	progress_pick = ProgressPrinter(enabled=verbose, prefix='[tags tfidf] pick')
 
 	for i, rel in enumerate(rel_paths):
 		row = X.getrow(i)
 		if row.nnz == 0:
 			tags_by_path[rel] = []
+			progress_pick.update(i + 1, len(rel_paths))
 			continue
 		# Sort terms by TF-IDF score descending.
 		pairs = sorted(zip(row.indices, row.data), key=lambda x: x[1], reverse=True)
@@ -164,6 +230,8 @@ def _build_tfidf_tag_index(
 			if len(picked) >= tag_count:
 				break
 		tags_by_path[rel] = picked
+		progress_pick.update(i + 1, len(rel_paths))
+	progress_pick.close(len(rel_paths))
 
 	if verbose:
 		print(f"[tags] unique={len(used_global)}/{max_unique_tags}")
@@ -190,11 +258,12 @@ def _build_textrank_tag_index(
 			"或：pip install textrank4zh"
 		) from exc
 	print(f"[tags] start building TextRank index for {len(files)} files...")
+	progress = ProgressPrinter(enabled=verbose, prefix='[tags textrank]')
 
 	used_global: Set[str] = set()
 	tags_by_path: Dict[str, List[str]] = {}
 
-	for p in files:
+	for i, p in enumerate(files, start=1):
 		rel = p.relative_to(target_root).as_posix()
 		raw = _read_text_best_effort(p)
 		body = _strip_front_matter_if_any(raw)
@@ -239,6 +308,8 @@ def _build_textrank_tag_index(
 			if len(picked) >= tag_count:
 				break
 		tags_by_path[rel] = picked
+		progress.update(i, len(files))
+	progress.close(len(files))
 
 	if verbose:
 		print(f"[tags] end building TextRank index, unique={len(used_global)}/{max_unique_tags}")
@@ -280,6 +351,7 @@ def _build_keybert_tag_index(
 		) from exc
 
 	print(f"[tags] start building KeyBERT index for {len(files)} files...")
+	progress = ProgressPrinter(enabled=verbose, prefix='[tags keybert]')
 
 	# A multilingual model works for Chinese and English mixed content.
 	# Keep it as an internal default to avoid expanding CLI surface.
@@ -297,11 +369,16 @@ def _build_keybert_tag_index(
 	used_global: Set[str] = set()
 	tags_by_path: Dict[str, List[str]] = {}
 
-	for p in files:
+	for i, p in enumerate(files, start=1):
 		rel = p.relative_to(target_root).as_posix()
 		raw = _read_text_best_effort(p)
 		body = _strip_front_matter_if_any(raw)
 		clean = _clean_text_for_tags(body)
+		tokens = _jieba_tokenize(clean, dedupe=False)
+		if not tokens:
+			tags_by_path[rel] = []
+			continue
+		doc = ' '.join(tokens)
 
 		# KeyBERT returns list[(keyword, score)]. Use keyphrase_ngram_range=(1,1)
 		# to align with the existing per-tag token behavior.
@@ -351,6 +428,8 @@ def _build_keybert_tag_index(
 				break
 
 		tags_by_path[rel] = picked
+		progress.update(i, len(files))
+	progress.close(len(files))
 
 	if verbose:
 		print(f"[tags] unique={len(used_global)}/{max_unique_tags}")
@@ -782,6 +861,8 @@ def _build_git_time_index(repo_dir: Path, interest_paths: Set[str], date_kind: s
 	created: Dict[str, int] = {}
 	done: Set[str] = set()
 	current_ts: Optional[int] = None
+	progress = ProgressPrinter(enabled=verbose, prefix='[git] batch')
+	last_filled = -1
 
 	try:
 		with tempfile.NamedTemporaryFile(prefix='git-log-', suffix='.txt', delete=False, mode='w', encoding='utf-8') as fp:
@@ -856,6 +937,14 @@ def _build_git_time_index(repo_dir: Path, interest_paths: Set[str], date_kind: s
 					done.add(final)
 					if len(done) == len(interest_paths):
 						break
+
+				filled = 0
+				for k in interest_paths:
+					if k in updated and k in created:
+						filled += 1
+				if filled != last_filled:
+					progress.update(filled, len(interest_paths))
+					last_filled = filled
 	finally:
 		if out_path:
 			try:
@@ -869,6 +958,7 @@ def _build_git_time_index(repo_dir: Path, interest_paths: Set[str], date_kind: s
 		u = updated.get(k)
 		if c is not None and u is not None:
 			result[k] = (c, u)
+	progress.close(len(interest_paths))
 	return result
 
 
@@ -1032,18 +1122,7 @@ def process_directory(cfg: ProcessConfig) -> int:
 			if cfg.verbose:
 				print(f"[git] batch index: filled={len(idx)}/{len(missing)}")
 
-	def render_bar(done: int, total_count: int, width: int = 24) -> str:
-		if total_count <= 0:
-			return "[" + ("-" * width) + "] 0/0"
-		frac = max(0.0, min(1.0, done / float(total_count)))
-		filled = int(round(frac * width))
-		bar = "#" * filled + "-" * (width - filled)
-		pct = int(frac * 100)
-		return f"[{bar}] {done}/{total_count} {pct:3d}%"
-
-	show_progress = (not cfg.verbose)
-	is_tty = bool(getattr(sys.stderr, "isatty", lambda: False)())
-	last_reported_pct = -1
+	progress = ProgressPrinter(enabled=cfg.verbose, prefix='[process]')
 
 	count = 0
 	for i, p in enumerate(files, start=1):
@@ -1051,21 +1130,8 @@ def process_directory(cfg: ProcessConfig) -> int:
 			count += 1
 			if cfg.verbose:
 				print(f"[ok] {p.relative_to(cfg.target_dir).as_posix()}")
-
-		if show_progress:
-			if is_tty:
-				msg = f"\r{render_bar(i, total)}"
-				sys.stderr.write(msg)
-				sys.stderr.flush()
-			else:
-				# Non-interactive output: print on percentage change (1% steps) and at the end.
-				pct = int((i / max(1, total)) * 100)
-				if pct != last_reported_pct and (pct % 5 == 0 or i == total):
-					print(f"progress: {pct}% ({i}/{total})")
-					last_reported_pct = pct
-
-	if show_progress and is_tty:
-		sys.stderr.write("\n")
+		progress.update(i, total)
+	progress.close(total)
 
 	print(f"processed: {count} files, target={cfg.target_dir}")
 	return 0
