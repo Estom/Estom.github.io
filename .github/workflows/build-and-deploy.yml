@@ -91,27 +91,40 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build & push build image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile-build
-          push: true
-          build-args: |
-            BASE_IMAGE=${{ steps.vars.outputs.base_image_ref }}
-          tags: |
-            ${{ steps.vars.outputs.build_image_ref }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      # - name: Build & push build image
+      #   uses: docker/build-push-action@v6
+      #   with:
+      #     context: .
+      #     file: Dockerfile-build
+      #     push: true
+      #     build-args: |
+      #       BASE_IMAGE=${{ steps.vars.outputs.base_image_ref }}
+      #     tags: |
+      #       ${{ steps.vars.outputs.build_image_ref }}
+      #     cache-from: type=gha
+      #     cache-to: type=gha,mode=max
 
-      - name: Build & push run image
+      # - name: Build & push run image
+      #   uses: docker/build-push-action@v6
+      #   with:
+      #     context: .
+      #     file: Dockerfile-run
+      #     push: true
+      #     build-args: |
+      #       BASE_IMAGE=${{ steps.vars.outputs.build_image_ref }}
+      #     tags: |
+      #       ${{ steps.vars.outputs.run_image_ref }}
+      #     cache-from: type=gha
+      #     cache-to: type=gha,mode=max
+
+      - name: Build & push final image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           push: true
           build-args: |
-            BASE_IMAGE=${{ steps.vars.outputs.build_image_ref }}
+            BASE_IMAGE=${{ steps.vars.outputs.base_image_ref }}
           tags: |
             ${{ steps.vars.outputs.run_image_ref }}
           cache-from: type=gha
@@ -123,15 +136,15 @@ jobs:
           set -euo pipefail
           mkdir -p _site
 
-          image_ref="${{ steps.vars.outputs.build_image_ref }}"
-          echo "Using build image: ${image_ref}"
+          image_ref="${{ steps.vars.outputs.run_image_ref }}"
+          echo "Using image: ${image_ref}"
 
           docker pull "${image_ref}"
 
           cid="$(docker create "$image_ref")"
           trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
 
-          docker cp "$cid":/app/public/. _site/
+          docker cp "$cid":/usr/share/nginx/html/. _site/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

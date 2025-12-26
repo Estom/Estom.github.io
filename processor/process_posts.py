@@ -809,10 +809,6 @@ def _build_git_time_index(repo_dir: Path, interest_paths: Set[str], date_kind: s
 			return {}
 		with open(out_path, 'r', encoding='utf-8', errors='replace') as f:
 			for line in f:
-				if verbose:
-					print(f"[git] proc line :{line}")
-				if line.startswith("R081"):
-					print("test")
 				s = line.rstrip('\n')
 				if not s:
 					continue
