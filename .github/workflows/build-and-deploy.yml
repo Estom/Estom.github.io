@@ -158,9 +158,6 @@ jobs:
           # 限制缓存大小为100MB（或直接注释禁用）
           # cache-from: type=gha
           # cache-to: type=gha,mode=max,size=100m
-          # 完全禁用缓存
-          cache-from: type=none
-          cache-to: type=none
 
       - name: Upload Pages content
         shell: bash
