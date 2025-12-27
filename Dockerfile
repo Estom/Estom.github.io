@@ -12,6 +12,11 @@ WORKDIR /app
 
 COPY . .
 
+# NOTE_REPO_URL can be baked into the image at build time via --build-arg,
+# and can also be overridden at container runtime via -e NOTE_REPO_URL=...
+ARG NOTE_REPO_URL=
+ENV NOTE_REPO_URL=${NOTE_REPO_URL}
+
 RUN bash ./build.sh
 
 
