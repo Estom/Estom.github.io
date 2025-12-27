@@ -35,6 +35,7 @@ jobs:
       # For push events, only repo variables (vars.*) apply.
       SKIP_BASE_IMAGE: ${{ vars.SKIP_BASE_IMAGE || 'false' }}
       FIXED_BASE_IMAGE_REF: ${{ vars.BASE_IMAGE_REF || '' }}
+      NOTE_REPO_URL: ${{ vars.NOTE_REPO_URL || '' }}
     
 
     steps:

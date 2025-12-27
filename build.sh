@@ -11,9 +11,9 @@ if [[ -f ".env" ]]; then
 	set +a
 fi
 
-REPO_URL="${REPO_URL}"
+REPO_URL="${NOTE_REPO_URL}"
 NOTES_DIR="notes"
-BRANCH="${REPO_BRANCH:-master}"
+BRANCH="${NOTE_REPO_BRANCH:-master}"
 
 TAG_METHOD="${TAG_METHOD:-textrank}"
 

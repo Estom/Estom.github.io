@@ -13,3 +13,4 @@ __pycache__/
 note_image
 notes/
 .deploy_git/
+.env

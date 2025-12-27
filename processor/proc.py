@@ -1155,7 +1155,7 @@ def main(argv=None) -> int:
 	parser.add_argument('--raw-wrap', choices=['auto', 'always', 'never'], default='auto', help='遇到模板语法时用 Nunjucks raw 包裹正文（默认：auto）')
 	parser.add_argument('--escape-curly', choices=['true', 'false'], default='true', help='是否转义 {{ }} 以避免 Nunjucks 解析（默认：true）')
 	parser.add_argument('--git-date', choices=['author', 'committer'], default='author', help='使用 git 的 author 时间或 committer 时间（默认：author）')
-	parser.add_argument('--git-batch', choices=['true', 'false'], default='false', help='是否用一次 git log 构建时间索引（默认：true）')
+	parser.add_argument('--git-batch', choices=['true', 'false'], default='true', help='是否用一次 git log 构建时间索引（默认：true）')
 	parser.add_argument('--require-git-history', choices=['true', 'false'], default='true', help='无法读取 git 历史时是否直接失败（默认：true）')
 	parser.add_argument('--timestamp', type=int, default=None, help='指定 date/updated 的时间戳（秒）。默认使用当前时间')
 	parser.add_argument('-v', '--verbose', action='store_true', help='输出更多日志')
