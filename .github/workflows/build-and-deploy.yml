@@ -94,6 +94,7 @@ jobs:
           echo "base_image_ref=${base_image_ref}" >> "$GITHUB_OUTPUT"
           echo "build_image_ref=${registry}/${image_name_lc}:build-${version}-${iteration}" >> "$GITHUB_OUTPUT"
           echo "run_image_ref=${registry}/${image_name_lc}:run-${version}-${iteration}" >> "$GITHUB_OUTPUT"
+          echo "NOTE_REPO_URL=${NOTE_REPO_URL}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
