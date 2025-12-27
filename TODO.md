@@ -52,7 +52,7 @@
 - [ ] 工程化指南
   - [TODO] ~~将数据处理的脚本，整理为python的模块。~~
   - [x] 通过.env定义环境变量和参数。给出.env.example文件，给出参数说明。.env本身不要提交到git中。
-  - [TODO] README.md 包括项目说明、快速开始。
+  - [x] README.md 包括项目说明、快速开始。
 
 CICI 流水线的过程。Github Actions流水线-> Dockerfile镜像构建 -> build.sh 构建脚本 -> uv/npm构建工具 -> python和nodejs工程。
 1. notes工程开发

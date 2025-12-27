@@ -58,9 +58,9 @@ class ProgressPrinter:
 
 	def __post_init__(self) -> None:
 		if not self.enabled:
-			self._is_tty = False
 			return
 		self._is_tty = bool(getattr(self.tty_stream, "isatty", lambda: False)())
+		print(f"[tags] enabled: {self.enabled},is_tty: {self._is_tty}")
 
 	def _render_bar(self, done: int, total: int) -> str:
 		if total <= 0:
@@ -861,8 +861,8 @@ def _build_git_time_index(repo_dir: Path, interest_paths: Set[str], date_kind: s
 	created: Dict[str, int] = {}
 	done: Set[str] = set()
 	current_ts: Optional[int] = None
-	progress = ProgressPrinter(enabled=verbose, prefix='[git] batch')
-	last_filled = -1
+	progress = ProgressPrinter(enabled=verbose, prefix='[git] scan')
+	total_lines = 0
 
 	try:
 		with tempfile.NamedTemporaryFile(prefix='git-log-', suffix='.txt', delete=False, mode='w', encoding='utf-8') as fp:
@@ -888,8 +888,14 @@ def _build_git_time_index(repo_dir: Path, interest_paths: Set[str], date_kind: s
 
 		if out_path is None:
 			return {}
+
+		# Progress: use processed line count / total line count.
+		# Only compute total_lines when verbose to avoid an extra full pass.
+		with open(out_path, 'r', encoding='utf-8', errors='replace') as f_total:
+			total_lines = sum(1 for _ in f_total)
+
 		with open(out_path, 'r', encoding='utf-8', errors='replace') as f:
-			for line in f:
+			for line_no, line in enumerate(f, start=1):
 				s = line.rstrip('\n')
 				if not s:
 					continue
@@ -903,6 +909,8 @@ def _build_git_time_index(repo_dir: Path, interest_paths: Set[str], date_kind: s
 					continue
 
 				parts = s.split('\t')
+				if len(parts) < 2:
+					continue
 				status = parts[0]
 				# Rename: Rxxx\told\tnew
 				if status.startswith('R') and len(parts) >= 3:
@@ -921,8 +929,7 @@ def _build_git_time_index(repo_dir: Path, interest_paths: Set[str], date_kind: s
 					created[final] = current_ts
 					continue
 
-				if len(parts) < 2:
-					continue
+
 				path = parts[1]
 				if path in interest_paths:
 					final = path
@@ -933,18 +940,8 @@ def _build_git_time_index(repo_dir: Path, interest_paths: Set[str], date_kind: s
 
 				updated.setdefault(final, current_ts)
 				created[final] = current_ts
-				if status == 'A':
-					done.add(final)
-					if len(done) == len(interest_paths):
-						break
-
-				filled = 0
-				for k in interest_paths:
-					if k in updated and k in created:
-						filled += 1
-				if filled != last_filled:
-					progress.update(filled, len(interest_paths))
-					last_filled = filled
+				# Throttle progress updates to reduce TTY overhead.
+				progress.update(line_no, total_lines)
 	finally:
 		if out_path:
 			try:
@@ -958,7 +955,8 @@ def _build_git_time_index(repo_dir: Path, interest_paths: Set[str], date_kind: s
 		u = updated.get(k)
 		if c is not None and u is not None:
 			result[k] = (c, u)
-	progress.close(len(interest_paths))
+	# Mark progress completed (even if we early-stopped).
+	progress.close(total_lines)
 	return result
 
 
@@ -1128,8 +1126,8 @@ def process_directory(cfg: ProcessConfig) -> int:
 	for i, p in enumerate(files, start=1):
 		if process_file(cfg, p):
 			count += 1
-			if cfg.verbose:
-				print(f"[ok] {p.relative_to(cfg.target_dir).as_posix()}")
+			# if cfg.verbose:
+			# 	print(f"[ok] {p.relative_to(cfg.target_dir).as_posix()}")
 		progress.update(i, total)
 	progress.close(total)
 
