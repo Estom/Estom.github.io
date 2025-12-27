@@ -17,7 +17,7 @@ dependencies = [
 
 [project.scripts]
 hexo-sync = "processor.sync:main"
-hexo-proc = "processor.process_posts:main"
+hexo-proc = "processor.proc:main"
 hexo-rename = "processor.rename_covers:main"
 
 [build-system]

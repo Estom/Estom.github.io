@@ -13,5 +13,8 @@ FROM ${BASE_IMAGE} AS build
 WORKDIR /app
 
 COPY . .
-
-RUN bash ./build.sh
+# 构建并删除中间文件，因为此模式要输出build镜像，所以降低基础镜像的大小
+RUN bash ./build.sh && \
+    rm -rf "$NOTES_DIR" && \
+    rm -rf ".venv" && \
+    rm -rf node_modules

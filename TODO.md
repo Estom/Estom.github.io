@@ -28,15 +28,15 @@
   - [TODO] ~~绿色的自然风格。~~
   - [TODO] ~~赛博朋克~~
   - [TODO] ~~科幻、宇宙和星辰~~
-- [ ] 执行效果优化
+- [x] 执行效果优化
   - [x] 批量处理git的时间戳。极大优化处理速度，避免多次触发python的执行bash命令。优化git的时间戳提取功能。现在的方案效率太低了，多次系统命令行调用和读取，严重拖慢了速度。
   - [x] 支持多种标签处理策略。引入tfidf、textrank、keybert小模型等。textrank速度和效果平衡性最好.标签生成方案优化。
   - [x] keybert分词效果不好。
   - [x] 标签处理过程和时间戳处理过程，添加简单的进度条。
-  - [TODO] 增量数据处理。实现一下增量编译的功能。每次提交一个commit和当前已经生成过的frontmatter，只重新生成其中的一部分。每次处理的时候都检查历史commit到这次commit之间变更的文件，再进行处理。设计实现增量处理的功能。需要结合github actions缓存功能+本地缓存文件实现，会增加实现的复杂度和维护的难度，暂时不实现，毕竟是个异步的action，这个时间并不是很重要。
-1. 在处理前通过外部缓存加载之前处理过的文档front-matter数据，和之前处理过的commit信息
-2. 对比当前提交和之前commit，计算出差异的文档。和待处理的文档取交集，计算出最终需要重新处理的文档。
-3. 只重新生成 需要重新处理的文档的front-matter,其他文档直接使用缓存好的front-matter的数据。
+  - [TODO] ~~增量数据处理。实现一下增量编译的功能。每次提交一个commit和当前已经生成过的frontmatter，只重新生成其中的一部分。每次处理的时候都检查历史commit到这次commit之间变更的文件，再进行处理。设计实现增量处理的功能。需要结合github actions缓存功能+本地缓存文件实现，会增加实现的复杂度和维护的难度，暂时不实现，毕竟是个异步的action，这个时间并不是很重要。~~
+  1. 在处理前通过外部缓存加载之前处理过的文档front-matter数据，和之前处理过的commit信息
+  2. 对比当前提交和之前commit，计算出差异的文档。和待处理的文档取交集，计算出最终需要重新处理的文档。
+  3. 只重新生成 需要重新处理的文档的front-matter,其他文档直接使用缓存好的front-matter的数据。
   - [x] 流水线支持跳过基础镜像的打包加速构建过程。
   - [x] git batch 命令仍旧会直接占用ssh缓冲区，导致断联然后强制退出。原来是AI写出了死循环！
   - [x] 考虑隐藏build的镜像，x是只打包运行镜像就可，将构建镜像和运行镜像放到一个Dockerfile中。分两个阶段打包。保留现在这种打包模式不变
@@ -49,9 +49,13 @@
   - [x] 将静态网站也托管到cloudflare的pages中.
   - [x] 点亮https安全的小图标
 
+- [ ] 工程化指南
+  - [TODO] ~~将数据处理的脚本，整理为python的模块。~~
+  - [TODO] 通过.env定义环境变量和参数。给出.env.example文件，给出参数说明。.env本身不要提交到git中。
+  - [TODO] README.md 包括项目说明、快速开始。
 
-CICI 流水线的过程
+CICI 流水线的过程。Github Actions流水线-> Dockerfile镜像构建 -> build.sh 构建脚本 -> uv/npm构建工具 -> python和nodejs工程。
 1. notes工程开发
-2. build.sh构建脚本 / docker_build.sh 打包镜像到本地
+2. build.sh构建脚本 / docker.sh 打包镜像到本地
 3. deploy.sh将工程部署到github pages /docker_deploy.sh 推送镜像到镜像仓库
 4. start.sh 启动当前的脚本。 /docker_run.sh 启动容器服务

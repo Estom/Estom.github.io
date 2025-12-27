@@ -2,9 +2,20 @@
 # 在build阶段完成数据的处理，生成可部署的产物
 set -euo pipefail
 
-REPO_URL="${REPO_URL:-https://gitee.com/Eyestorm/notes.git}"
+# 可选：从当前目录的 .env 加载环境变量（用于本地/CI 注入配置）
+# 说明：要求 .env 采用 bash 兼容的 KEY=VALUE 语法；该段会将其导出到子进程。
+if [[ -f ".env" ]]; then
+	set -a
+	# shellcheck disable=SC1091
+	source ".env"
+	set +a
+fi
+
+REPO_URL="${REPO_URL}"
 NOTES_DIR="notes"
-BRANCH="master"
+BRANCH="${REPO_BRANCH:-master}"
+
+TAG_METHOD="${TAG_METHOD:-textrank}"
 
 if [[ ! -d "$NOTES_DIR" ]]; then
 	echo "[notes] $NOTES_DIR not found, cloning from $REPO_URL ..."
@@ -24,15 +35,10 @@ fi
 # 数据处理
 uv sync
 uv run hexo-sync --verbose
-uv run hexo-proc --verbose --git-batch=true --tag-method=textrank --tag-count=3 --tag-budget=100
+uv run hexo-proc --verbose --git-batch=true --tag-method="$TAG_METHOD" --tag-count=3 --tag-budget=100
 
-# 删除中间文件
-rm -rf "$NOTES_DIR"
-rm -rf ".venv"
 
 # 生成静态文件
 npm install
 npm run clean
 npm run build
-
-rm -rf node_modules
